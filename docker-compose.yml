@@ -1,0 +1,32 @@
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${GAMEYA_SA_PASSWORD:?Set GAMEYA_SA_PASSWORD}
+    ports:
+      - "1433:1433"
+    volumes:
+      - gameya-sql:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build: .
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: Server=sqlserver;Database=Gameya;User Id=sa;Password=${GAMEYA_SA_PASSWORD};TrustServerCertificate=True
+      Jwt__SigningKey: ${GAMEYA_JWT_KEY:?Set GAMEYA_JWT_KEY}
+      Database__ApplyMigrationsOnStartup: "true"
+      Cors__AllowedOrigins__0: http://localhost:4200
+    ports:
+      - "8080:8080"
+
+volumes:
+  gameya-sql:

@@ -1,0 +1,75 @@
+using Gameya.Application.DTOs;
+
+namespace Gameya.Application.Abstractions;
+
+public interface ICurrentUser
+{
+    string? UserId { get; }
+    Guid? PersonId { get; }
+    bool IsAuthenticated { get; }
+    bool IsInRole(string role);
+    string? IpAddress { get; }
+}
+
+public interface IClock { DateTimeOffset UtcNow { get; } DateOnly Today { get; } }
+public interface ISubscriberCodeGenerator { string Generate(); }
+
+public interface IAssociationCalendar
+{
+    IReadOnlyCollection<(DateOnly PeriodDate, DateOnly DueDate)> CreatePeriods(DateOnly startDate, int numberOfMonths);
+}
+
+public interface IAssociationAccessService
+{
+    IQueryable<Guid> GetAccessibleAssociationIds(string userId, bool isAdmin, bool isOwner);
+    Task EnsureAccessAsync(Guid associationId, CancellationToken cancellationToken);
+}
+
+public interface IIdentityService
+{
+    Task<RegistrationResultDto> RegisterOwnerAsync(string name, string email, string password, CancellationToken cancellationToken);
+    Task ConfirmEmailAsync(string userId, string token, CancellationToken cancellationToken);
+    Task<AuthTokensDto> LoginAsync(string email, string password, CancellationToken cancellationToken);
+    Task<AuthTokensDto> RefreshAsync(string refreshToken, CancellationToken cancellationToken);
+    Task RevokeAsync(string refreshToken, CancellationToken cancellationToken);
+    Task<Guid> InvitePaymentUserAsync(string ownerId, string email, IReadOnlyCollection<Guid> associationIds, CancellationToken cancellationToken);
+    Task AcceptInvitationAsync(string token, string password, CancellationToken cancellationToken);
+    Task<AuthTokensDto> CreateParticipantTokenAsync(Guid personId, string phoneNumber, CancellationToken cancellationToken);
+}
+
+public interface IEmailService
+{
+    Task SendAsync(string recipient, string subject, string htmlBody, byte[]? attachment,
+        string? attachmentName, CancellationToken cancellationToken);
+}
+
+public interface IReportGenerator
+{
+    Task<GeneratedReportDto> GenerateMonthlyAsync(string ownerId, int year, int month, CancellationToken cancellationToken);
+}
+
+public interface IReportDeliveryService
+{
+    Task SendMonthlyAsync(string ownerId, int year, int month, CancellationToken cancellationToken);
+}
+
+public interface IBackgroundJobScheduler
+{
+    string EnqueueMonthlyReport(string ownerId, int year, int month);
+}
+
+public interface IIdempotentReportJob
+{
+    Task ExecuteAsync(string executionKey, string ownerId, int year, int month, CancellationToken cancellationToken);
+}
+
+public interface IMonthlyReportCoordinator
+{
+    Task SendPreviousMonthAsync(CancellationToken cancellationToken);
+}
+
+public interface IAuditService
+{
+    Task WriteAsync(string action, string entityName, string entityId, object? oldValues, object? newValues,
+        CancellationToken cancellationToken);
+}
