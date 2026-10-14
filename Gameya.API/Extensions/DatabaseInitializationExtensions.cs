@@ -27,8 +27,14 @@ public static class DatabaseInitializationExtensions
             var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
             if (await users.FindByEmailAsync(adminEmail) is null)
             {
-                var admin = new ApplicationUser { UserName = adminEmail, Email = adminEmail, EmailConfirmed = true,
-                    DisplayName = "Platform Administrator", CreatedAtUtc = DateTimeOffset.UtcNow };
+                var admin = new ApplicationUser
+                {
+                    UserName = adminEmail,
+                    Email = adminEmail,
+                    EmailConfirmed = true,
+                    DisplayName = "Platform Administrator",
+                    CreatedAtUtc = DateTimeOffset.UtcNow
+                };
                 var result = await users.CreateAsync(admin, adminPassword);
                 if (!result.Succeeded) throw new InvalidOperationException("Bootstrap administrator could not be created.");
                 var roleResult = await users.AddToRoleAsync(admin, AppRoles.Admin);

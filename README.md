@@ -39,7 +39,8 @@ Use environment variables or a secret store; never commit real values.
 - `ConnectionStrings__DefaultConnection`
 - `Jwt__Issuer`, `Jwt__Audience`, `Jwt__SigningKey`
 - `Email__Host`, `Email__Port`, `Email__UseSsl`, `Email__UserName`, `Email__Password`, `Email__FromAddress`
-- `Email__PublicApiBaseUrl`
+- `Email__PublicApiBaseUrl` (email-confirmation callback)
+- `Email__PublicAppBaseUrl` (payment-user invitation callback)
 - `Cors__AllowedOrigins__0` (and subsequent origins)
 - Optional one-time bootstrap: `BootstrapAdmin__Email` and `BootstrapAdmin__Password`
 
