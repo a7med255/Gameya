@@ -75,9 +75,9 @@ public sealed class GetAssociationByIdHandler(IApplicationDbContext db, IAssocia
         var result = await db.Associations.AsNoTracking().Where(x => x.Id == request.AssociationId)
             .Select(x => new AssociationDetailsDto(x.Id, x.Name, x.StartDate, x.EndDate, x.NumberOfMonths,
                 x.MonthlyContribution, x.Status, x.OwnerId,
-                x.Memberships.Select(m => new MembershipDto(m.Id, m.PersonId,
+                x.Memberships.OrderBy(m => m.DisplayOrder).Select(m => new MembershipDto(m.Id, m.PersonId,
                     db.People.Where(p => p.Id == m.PersonId).Select(p => p.FullName).First(), m.ShareCount, m.Kind,
-                    m.Status, m.DisplayOrder, m.JoinedAtUtc, m.LeftAtUtc)).OrderBy(m => m.DisplayOrder).ToList(),
+                    m.Status, m.DisplayOrder, m.JoinedAtUtc, m.LeftAtUtc)).ToList(),
                 x.Periods.OrderBy(p => p.PeriodNumber).Select(p => new PeriodDto(p.Id, p.PeriodNumber, p.PeriodDate, p.DueDate, p.Status)).ToList(),
                 x.Payouts.Select(p => new PayoutDto(p.Id, p.PeriodId,
                     db.Periods.Where(period => period.Id == p.PeriodId).Select(period => period.PeriodNumber).First(),

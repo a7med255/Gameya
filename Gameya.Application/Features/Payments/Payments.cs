@@ -130,11 +130,10 @@ public sealed class RecordPaymentHandler(IApplicationDbContext db, ICurrentUser 
                 unallocated -= amount;
             }
             await db.AddEntityAsync(payment, innerCt);
+            var creditAssociationId = request.CreditAssociationId ?? validAssociationIds.First();
             if (unallocated > 0)
             {
-                if (!request.CreditAssociationId.HasValue)
-                    throw new ConflictException("payment.credit_association_required", "Choose an association for the unallocated credit.");
-                await db.AddEntityAsync(new AssociationCredit(payment.Id, request.PersonId, request.CreditAssociationId.Value, unallocated, now), innerCt);
+                await db.AddEntityAsync(new AssociationCredit(payment.Id, request.PersonId, creditAssociationId, unallocated, now), innerCt);
             }
             await db.SaveChangesAsync(innerCt);
             await audit.WriteAsync("PaymentRecorded", nameof(Payment), payment.Id.ToString(), null,
@@ -142,7 +141,7 @@ public sealed class RecordPaymentHandler(IApplicationDbContext db, ICurrentUser 
             return new PaymentDto(payment.Id, payment.PersonId, payment.Amount, payment.Method, payment.PaidAtUtc,
                 payment.EntryType, payment.Allocations.Select(x => new PaymentAllocationDto(x.AssociationId, x.PeriodId,
                     x.AllocatedAmount, x.DueDate, x.LateDays)).ToList(), unallocated > 0
-                    ? [new PaymentCreditDto(request.CreditAssociationId!.Value, unallocated)] : []);
+                    ? [new PaymentCreditDto(creditAssociationId, unallocated)] : []);
         }, cancellationToken);
 
     private sealed record Obligation(Guid AssociationId, Guid PeriodId, DateOnly DueDate, decimal InitialRemaining)

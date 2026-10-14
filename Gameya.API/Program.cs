@@ -93,7 +93,10 @@ app.UseSerilogRequestLogging(options =>
     options.MessageTemplate = "HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {Elapsed:0.0000} ms");
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 if (!app.Environment.IsDevelopment()) { app.UseHsts(); }
-if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
+//if (app.Environment.IsDevelopment()) {
+    app.UseSwagger(); 
+    app.UseSwaggerUI();
+//}
 app.UseHttpsRedirection();
 app.Use(async (context, next) =>
 {
