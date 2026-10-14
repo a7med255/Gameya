@@ -19,6 +19,12 @@ public sealed class AuthController(ISender sender) : ControllerBase
     { await sender.Send(command, cancellationToken); return NoContent(); }
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginCommand command, CancellationToken cancellationToken) => Ok(await sender.Send(command, cancellationToken));
+    [HttpPost("password-reset/request")]
+    public async Task<IActionResult> RequestPasswordReset(RequestPasswordResetCommand command,
+        CancellationToken cancellationToken) { await sender.Send(command, cancellationToken); return Accepted(); }
+    [HttpPost("password-reset")]
+    public async Task<IActionResult> ResetPassword(ResetPasswordCommand command, CancellationToken cancellationToken)
+    { await sender.Send(command, cancellationToken); return NoContent(); }
     [HttpPost("participant-login")]
     public async Task<IActionResult> ParticipantLogin(ParticipantLoginCommand command, CancellationToken cancellationToken) => Ok(await sender.Send(command, cancellationToken));
     [HttpPost("refresh")]

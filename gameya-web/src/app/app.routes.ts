@@ -10,6 +10,8 @@ export const routes: Routes = [
   { path: 'auth/login', loadComponent: () => import('./features/auth/login.component').then((x) => x.LoginComponent) },
   { path: 'auth/register', loadComponent: () => import('./features/auth/register.component').then((x) => x.RegisterComponent) },
   { path: 'auth/confirm-email', loadComponent: () => import('./features/auth/email-confirmation.component').then((x) => x.EmailConfirmationComponent) },
+  { path: 'auth/forgot-password', loadComponent: () => import('./features/auth/password-reset.component').then((x) => x.PasswordResetComponent) },
+  { path: 'auth/reset-password', loadComponent: () => import('./features/auth/password-reset.component').then((x) => x.PasswordResetComponent) },
   { path: 'participant/login', loadComponent: () => import('./features/auth/participant-login.component').then((x) => x.ParticipantLoginComponent) },
   { path: 'payment-user-invitation', loadComponent: () => import('./features/auth/accept-invitation.component').then((x) => x.AcceptInvitationComponent) },
   {
@@ -22,6 +24,7 @@ export const routes: Routes = [
       { path: 'people/:id', loadComponent: () => import('./features/people/person-profile.component').then((x) => x.PersonProfileComponent) },
       { path: 'associations', loadComponent: () => import('./features/associations/associations-list.component').then((x) => x.AssociationsListComponent) },
       { path: 'associations/new', canDeactivate: [unsavedChangesGuard], loadComponent: () => import('./features/associations/create-association.component').then((x) => x.CreateAssociationComponent) },
+      { path: 'associations/:id/edit', canActivate: [associationAccessGuard], canDeactivate: [unsavedChangesGuard], loadComponent: () => import('./features/associations/create-association.component').then((x) => x.CreateAssociationComponent) },
       { path: 'associations/:id', canActivate: [associationAccessGuard], loadComponent: () => import('./features/associations/association-details.component').then((x) => x.AssociationDetailsComponent) },
       { path: 'payments', loadComponent: () => import('./features/payments/payments-history.component').then((x) => x.PaymentsHistoryComponent) },
       { path: 'payments/new', loadComponent: () => import('./features/payments/payment-workflow.component').then((x) => x.PaymentWorkflowComponent) },

@@ -37,6 +37,7 @@ public sealed class PaymentWorkflowTests(GameyaApiFactory factory) : IClassFixtu
                 (firstMonth.AddMonths(1), new DateOnly(firstMonth.AddMonths(1).Year, firstMonth.AddMonths(1).Month, 10))]);
             var member = association.AddMember(person.Id, 1m, MembershipKind.Paying, DateTimeOffset.UtcNow.AddMonths(-3));
             association.AddPayout(association.Periods.First().Id, PayoutRecipientType.Membership, member.Id, 1m, DateTimeOffset.UtcNow.AddMonths(-3));
+            association.AddPayout(association.Periods.Last().Id, PayoutRecipientType.ReserveSlot, null, 1m, DateTimeOffset.UtcNow.AddMonths(-3));
             association.Start(DateTimeOffset.UtcNow.AddMonths(-2));
             db.PeopleSet.Add(person); db.AssociationsSet.Add(association); await db.SaveChangesAsync();
         }

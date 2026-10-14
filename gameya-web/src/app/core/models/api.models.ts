@@ -3,7 +3,7 @@ export type AssociationStatus = 'Draft' | 'Active' | 'Paused' | 'Completed' | 'C
 export type MembershipStatus = 'Active' | 'Exited' | 'Replaced';
 export type MembershipKind = 'Paying' | 'Advance';
 export type PeriodStatus = 'Upcoming' | 'Due' | 'Closed';
-export type PayoutRecipientType = 'Membership' | 'ReserveSlot';
+export type PayoutRecipientType = 'Membership' | 'ReserveSlot' | 'AdvanceSlot';
 export type PayoutStatus = 'Scheduled' | 'Completed';
 export type PaymentMethod = 'Cash' | 'InstaPay' | 'VodafoneCash';
 export type PaymentEntryType = 'Payment' | 'Adjustment';
@@ -43,7 +43,14 @@ export interface ProblemDetails {
   instance?: string;
   code?: string;
   traceId?: string;
-  errors?: Readonly<Record<string, readonly string[]>>;
+  errors?: Readonly<Record<string, readonly string[]>> | readonly BusinessValidationError[];
+}
+
+export interface BusinessValidationError {
+  code: string;
+  field: string;
+  periodNumber: number | null;
+  message: string;
 }
 
 export interface PersonDto {
@@ -101,6 +108,14 @@ export interface AssociationDetailsDto {
   periods: readonly PeriodDto[];
   payouts: readonly PayoutDto[];
 }
+export interface AssociationEditorDto {
+  association: AssociationDetailsDto;
+  totalMemberShares: number;
+  totalScheduledMemberShares: number;
+  fullSharePayoutValue: number;
+  totalMonthlyObligation: number;
+  validationErrors: readonly BusinessValidationError[];
+}
 
 export interface MembershipDto {
   id: string;
@@ -109,6 +124,7 @@ export interface MembershipDto {
   shareCount: number;
   kind: MembershipKind;
   status: MembershipStatus;
+  displayOrder: number;
   joinedAtUtc: string;
   leftAtUtc: string | null;
 }
@@ -202,6 +218,26 @@ export interface CreatePersonRequest { fullName: string; phoneNumber: string; }
 export interface CreateAssociationRequest { name: string; startDate: string; numberOfMonths: number; monthlyContribution: number; }
 export interface AddMemberRequest { personId: string; shareCount: number; kind: MembershipKind; }
 export interface AddPayoutRequest { periodId: string; recipientType: PayoutRecipientType; membershipId: string | null; shareCount: number; }
+export interface AssociationEditorMemberInput {
+  clientKey: string;
+  personId: string | null;
+  fullName: string | null;
+  phoneNumber: string | null;
+  shareCount: number;
+  displayOrder: number;
+}
+export interface AssociationEditorPayoutInput {
+  periodNumber: number;
+  recipientType: PayoutRecipientType;
+  memberClientKey: string | null;
+  shareCount: number;
+  beneficiaryMemberClientKey: string | null;
+}
+export interface SaveAssociationConfigurationRequest extends CreateAssociationRequest {
+  members: readonly AssociationEditorMemberInput[];
+  payouts: readonly AssociationEditorPayoutInput[];
+  startAssociation: boolean;
+}
 export interface MovePayoutRequest { periodId: string; reason: string | null; }
 export interface ReplacementPersonInput { personId: string | null; fullName: string | null; phoneNumber: string | null; shareCount: number; }
 export interface ReplaceMemberRequest { replacements: readonly ReplacementPersonInput[]; reason: string | null; }

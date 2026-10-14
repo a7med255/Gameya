@@ -103,12 +103,14 @@ public sealed class PersonAccessService(ApplicationDbContext db, ICurrentUser cu
             throw new NotFoundException("person.not_found", "Person was not found.");
     }
 
-    public async Task GrantOwnerAccessAsync(string ownerId, Guid personId, CancellationToken cancellationToken)
+    public async Task GrantOwnerAccessAsync(string ownerId, Guid personId, string normalizedName,
+        string normalizedPhone, CancellationToken cancellationToken)
     {
         if (await db.OwnerPersonAccesses.AnyAsync(x => x.OwnerId == ownerId && x.PersonId == personId, cancellationToken)) return;
         await db.OwnerPersonAccesses.AddAsync(new OwnerPersonAccess
         {
-            OwnerId = ownerId, PersonId = personId, GrantedAtUtc = clock.UtcNow
+            OwnerId = ownerId, PersonId = personId, NormalizedName = normalizedName,
+            NormalizedPhone = normalizedPhone, GrantedAtUtc = clock.UtcNow
         }, cancellationToken);
     }
 }

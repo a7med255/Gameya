@@ -44,4 +44,12 @@ export class AuthApiService {
   acceptInvitation(token: string, password: string): Observable<void> {
     return this.http.post<void>(`${this.base}${API_ENDPOINTS.acceptInvitation}`, { token, password });
   }
+
+  requestPasswordReset(email: string): Observable<void> {
+    return this.http.post<void>(`${this.base}/api/auth/password-reset/request`, { email });
+  }
+
+  resetPassword(userId: string, token: string, newPassword: string): Observable<void> {
+    return this.http.post<void>(`${this.base}/api/auth/password-reset`, { userId, token, newPassword });
+  }
 }

@@ -33,7 +33,7 @@ public sealed class RecordPaymentHandler(IApplicationDbContext db, ICurrentUser 
             var requestedIds = request.AssociationIds?.Distinct().ToArray() ?? [];
             var associationIds = requestedIds.Length == 0
                 ? await db.Memberships.Where(x => x.PersonId == request.PersonId && accessibleIdsQuery.Contains(x.AssociationId))
-                    .Join(db.Associations.Where(x => x.Status != AssociationStatus.Draft && x.Status != AssociationStatus.Cancelled),
+                    .Join(db.Associations.Where(x => x.Status == AssociationStatus.Active || x.Status == AssociationStatus.Paused),
                         membership => membership.AssociationId, association => association.Id, (_, association) => association.Id)
                     .Distinct().ToArrayAsync(innerCt)
                 : await accessibleIdsQuery.Where(x => requestedIds.Contains(x)).ToArrayAsync(innerCt);
@@ -46,7 +46,7 @@ public sealed class RecordPaymentHandler(IApplicationDbContext db, ICurrentUser 
 
             var membershipData = await db.Memberships.AsNoTracking()
                 .Where(m => m.PersonId == request.PersonId && associationIds.Contains(m.AssociationId) && m.Kind == MembershipKind.Paying)
-                .Join(db.Associations.AsNoTracking().Where(a => a.Status != AssociationStatus.Draft && a.Status != AssociationStatus.Cancelled),
+                .Join(db.Associations.AsNoTracking().Where(a => a.Status == AssociationStatus.Active || a.Status == AssociationStatus.Paused),
                     m => m.AssociationId, a => a.Id, (m, a) => new
                 {
                     Membership = m, Association = a
@@ -322,7 +322,7 @@ public sealed class GetPaymentPageHandler(IApplicationDbContext db, ICurrentUser
             current.IsInRole(AppRoles.Admin), current.IsInRole(AppRoles.Owner));
         var membershipData = await db.Memberships.AsNoTracking()
             .Where(x => x.PersonId == request.PersonId && x.Kind == MembershipKind.Paying && accessible.Contains(x.AssociationId))
-            .Join(db.Associations.AsNoTracking().Where(a => a.Status != AssociationStatus.Draft && a.Status != AssociationStatus.Cancelled),
+            .Join(db.Associations.AsNoTracking().Where(a => a.Status == AssociationStatus.Active || a.Status == AssociationStatus.Paused),
                 m => m.AssociationId, a => a.Id, (m, a) => new { m, a }).ToListAsync(cancellationToken);
         if (membershipData.Count == 0)
             throw new NotFoundException("person.not_found", "Person was not found.");

@@ -13,6 +13,7 @@ public sealed class Person : AggregateRoot
         SetName(fullName, now);
         Guard.Against(string.IsNullOrWhiteSpace(phoneNumber), "person.phone_required", "Phone number is required.");
         PhoneNumber = phoneNumber.Trim();
+        NormalizedPhoneNumber = NormalizePhone(PhoneNumber);
         SubscriberCode = subscriberCode;
         IsActive = true;
         CreatedAtUtc = now;
@@ -21,6 +22,7 @@ public sealed class Person : AggregateRoot
     public string FullName { get; private set; } = string.Empty;
     public string NormalizedFullName { get; private set; } = string.Empty;
     public string PhoneNumber { get; private set; } = string.Empty;
+    public string NormalizedPhoneNumber { get; private set; } = string.Empty;
     public SubscriberCode SubscriberCode { get; private set; } = null!;
     public bool IsActive { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
@@ -37,4 +39,6 @@ public sealed class Person : AggregateRoot
     public void Deactivate(DateTimeOffset now) { IsActive = false; UpdatedAtUtc = now; }
 
     public static string NormalizeName(string name) => string.Join(' ', name.Trim().ToUpperInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    public static string NormalizePhone(string phoneNumber) =>
+        string.Concat(phoneNumber.Where(character => !char.IsWhiteSpace(character)));
 }

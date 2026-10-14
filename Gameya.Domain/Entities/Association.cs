@@ -1,6 +1,7 @@
 using Gameya.Domain.Common;
 using Gameya.Domain.Enums;
 using Gameya.Domain.Events;
+using Gameya.Domain.Exceptions;
 using Gameya.Domain.Rules;
 
 namespace Gameya.Domain.Entities;
@@ -20,7 +21,8 @@ public sealed class Association : AggregateRoot
         Guard.Against(numberOfMonths <= 0, "association.invalid_months", "Number of months must be positive.");
         Guard.Against(monthlyContribution <= 0, "association.invalid_contribution", "Monthly contribution must be positive.");
         Guard.Against(string.IsNullOrWhiteSpace(ownerId), "association.owner_required", "Owner is required.");
-        Name = name.Trim();
+        Name = NormalizeDisplayName(name);
+        NormalizedName = NormalizeName(name);
         StartDate = startDate;
         NumberOfMonths = numberOfMonths;
         MonthlyContribution = monthlyContribution;
@@ -30,6 +32,7 @@ public sealed class Association : AggregateRoot
     }
 
     public string Name { get; private set; } = string.Empty;
+    public string NormalizedName { get; private set; } = string.Empty;
     public DateOnly StartDate { get; private set; }
     public int NumberOfMonths { get; private set; }
     public decimal MonthlyContribution { get; private set; }
@@ -45,12 +48,14 @@ public sealed class Association : AggregateRoot
     public IReadOnlyCollection<Replacement> Replacements => _replacements.AsReadOnly();
     public decimal FullSharePayoutValue => MonthlyContribution * NumberOfMonths;
 
-    public AssociationMembership AddMember(Guid personId, decimal shareCount, MembershipKind kind, DateTimeOffset now)
+    public AssociationMembership AddMember(Guid personId, decimal shareCount, MembershipKind kind, DateTimeOffset now,
+        int displayOrder = -1)
     {
         Guard.Against(Status != AssociationStatus.Draft, "association.members_after_start", "Normal members can only be added while the association is in draft.");
         Guard.Against(_memberships.Any(x => x.PersonId == personId && x.Status == MembershipStatus.Active),
             "membership.duplicate", "This person is already an active member.");
-        var membership = new AssociationMembership(Id, personId, shareCount, kind, now);
+        var membership = new AssociationMembership(Id, personId, shareCount, kind, now,
+            displayOrder < 0 ? _memberships.Count : displayOrder);
         _memberships.Add(membership);
         UpdatedAtUtc = now;
         return membership;
@@ -76,12 +81,34 @@ public sealed class Association : AggregateRoot
         EndDate = values[^1].PeriodDate;
     }
 
-    public PayoutAssignment AddPayout(Guid periodId, PayoutRecipientType type, Guid? membershipId,
-        decimal shareCount, DateTimeOffset now)
-        => AddPayout(periodId, type, membershipId, shareCount, DateOnly.FromDateTime(now.UtcDateTime), now);
+    public void ResetDraftConfiguration(string name, DateOnly startDate, int numberOfMonths,
+        decimal monthlyContribution, IEnumerable<(DateOnly PeriodDate, DateOnly DueDate)> dates,
+        DateTimeOffset now)
+    {
+        Guard.Against(Status != AssociationStatus.Draft, "association.draft_required",
+            "The complete association configuration can only be replaced while it is a draft.");
+        Guard.Against(string.IsNullOrWhiteSpace(name), "association.name_required", "Association name is required.");
+        Guard.Against(numberOfMonths <= 0, "association.invalid_months", "Number of months must be positive.");
+        Guard.Against(monthlyContribution <= 0, "association.invalid_contribution", "Monthly contribution must be positive.");
+        _payouts.Clear();
+        _memberships.Clear();
+        _periods.Clear();
+        Name = NormalizeDisplayName(name);
+        NormalizedName = NormalizeName(name);
+        StartDate = startDate;
+        NumberOfMonths = numberOfMonths;
+        MonthlyContribution = monthlyContribution;
+        SetPeriods(dates);
+        UpdatedAtUtc = now;
+    }
 
     public PayoutAssignment AddPayout(Guid periodId, PayoutRecipientType type, Guid? membershipId,
-        decimal shareCount, DateOnly today, DateTimeOffset now)
+        decimal shareCount, DateTimeOffset now, Guid? beneficiaryPersonId = null)
+        => AddPayout(periodId, type, membershipId, shareCount, DateOnly.FromDateTime(now.UtcDateTime), now,
+            beneficiaryPersonId);
+
+    public PayoutAssignment AddPayout(Guid periodId, PayoutRecipientType type, Guid? membershipId,
+        decimal shareCount, DateOnly today, DateTimeOffset now, Guid? beneficiaryPersonId = null)
     {
         Guard.Against(Status is AssociationStatus.Completed or AssociationStatus.Cancelled,
             "association.closed", "A closed association cannot receive payout assignments.");
@@ -91,7 +118,7 @@ public sealed class Association : AggregateRoot
             "payout.future_only", "Only future payout assignments can be added after the association starts.");
         if (membershipId is not null)
             Guard.Against(_memberships.All(x => x.Id != membershipId), "membership.not_found", "Membership was not found.");
-        var payout = new PayoutAssignment(Id, periodId, type, membershipId, shareCount, now);
+        var payout = new PayoutAssignment(Id, periodId, type, membershipId, shareCount, now, beneficiaryPersonId);
         _payouts.Add(payout);
         return payout;
     }
@@ -131,10 +158,8 @@ public sealed class Association : AggregateRoot
     public void Start(DateTimeOffset now)
     {
         Guard.Against(Status != AssociationStatus.Draft, "association.start_from_draft", "Only a draft association can start.");
-        Guard.Against(_periods.Count != NumberOfMonths, "association.periods_required", "All association periods must exist before starting.");
-        Guard.Against(!_memberships.Any(x => x.Kind == MembershipKind.Paying && x.Status == MembershipStatus.Active),
-            "association.members_required", "At least one paying member is required.");
-        ValidateFinancialBalance();
+        var errors = ValidateForStart();
+        if (errors.Count != 0) throw new AssociationBusinessValidationException(errors);
         Status = AssociationStatus.Active;
         UpdatedAtUtc = now;
         Raise(new AssociationStarted(Id, now));
@@ -163,6 +188,12 @@ public sealed class Association : AggregateRoot
         var period = _periods.Single(x => x.Id == payout!.PeriodId);
         Guard.Against(period.PeriodDate > today, "payout.not_due", "A future payout cannot be completed.");
         payout!.Complete(now);
+        if (_payouts.Count != 0 && _payouts.All(x => x.Status == PayoutStatus.Completed))
+        {
+            foreach (var item in _periods) item.Close();
+            Status = AssociationStatus.Completed;
+            Raise(new AssociationCompleted(Id, now));
+        }
         UpdatedAtUtc = now;
     }
 
@@ -187,6 +218,14 @@ public sealed class Association : AggregateRoot
         Raise(new AssociationCompleted(Id, now));
     }
 
+    public void Cancel(DateTimeOffset now)
+    {
+        Guard.Against(Status is AssociationStatus.Completed or AssociationStatus.Cancelled,
+            "association.cancel_state", "A completed or cancelled association cannot be cancelled.");
+        Status = AssociationStatus.Cancelled;
+        UpdatedAtUtc = now;
+    }
+
     public Replacement ReplaceMember(Guid oldMembershipId,
         IReadOnlyCollection<(Guid PersonId, decimal ShareCount)> replacements, string? reason, DateTimeOffset now)
     {
@@ -202,7 +241,8 @@ public sealed class Association : AggregateRoot
         var links = new List<ReplacementShare>();
         foreach (var item in replacements)
         {
-            var membership = new AssociationMembership(Id, item.PersonId, item.ShareCount, MembershipKind.Paying, now);
+            var membership = new AssociationMembership(Id, item.PersonId, item.ShareCount, MembershipKind.Paying, now,
+                _memberships.Count);
             _memberships.Add(membership);
             links.Add(new ReplacementShare(membership.Id, item.ShareCount));
         }
@@ -212,15 +252,53 @@ public sealed class Association : AggregateRoot
         return replacement;
     }
 
-    private void ValidateFinancialBalance()
+    public IReadOnlyCollection<AssociationValidationError> ValidateForStart()
     {
+        var errors = new List<AssociationValidationError>();
+        if (_periods.Count != NumberOfMonths)
+            errors.Add(new("association.periods_required", "numberOfMonths", null,
+                "All association periods must exist before starting."));
         var payingMembers = _memberships
             .Where(x => x.Kind == MembershipKind.Paying && x.Status == MembershipStatus.Active)
             .ToList();
-        var isBalanced = payingMembers.All(member => _payouts
-            .Where(x => x.RecipientType == PayoutRecipientType.Membership && x.MembershipId == member.Id)
-            .Sum(x => x.ShareCount) == member.ShareCount);
-        Guard.Against(!isBalanced, "association.financial_imbalance",
-            "Paying member obligations must equal regular scheduled payout value; reserve and advance entries are excluded.");
+        if (payingMembers.Count == 0)
+            errors.Add(new("association.members_required", "members", null,
+                "At least one paying member is required."));
+        foreach (var period in _periods.OrderBy(x => x.PeriodNumber))
+            if (_payouts.All(x => x.PeriodId != period.Id))
+                errors.Add(new("association.period_payout_required", $"periods[{period.PeriodNumber - 1}]", period.PeriodNumber,
+                    "Every period must have at least one payout assignment."));
+        foreach (var member in payingMembers)
+        {
+            var scheduledShares = _payouts
+                .Where(x => x.RecipientType == PayoutRecipientType.Membership && x.MembershipId == member.Id)
+                .Sum(x => x.ShareCount);
+            if (scheduledShares != member.ShareCount)
+                errors.Add(new("association.member_payout_mismatch", $"members[{member.DisplayOrder}].shareCount", null,
+                    "The member's scheduled payout shares must equal their subscribed shares."));
+        }
+        foreach (var payout in _payouts.Where(x => x.RecipientType is PayoutRecipientType.ReserveSlot or PayoutRecipientType.AdvanceSlot))
+        {
+            var period = _periods.SingleOrDefault(x => x.Id == payout.PeriodId);
+            if (payout.ShareCount != 1)
+                errors.Add(new("payout.virtual_full_share", "payouts", period?.PeriodNumber,
+                    "Reserve and advance slots must represent exactly one full share."));
+            if (payout.MembershipId is not null)
+                errors.Add(new("payout.virtual_cannot_be_person", "payouts", period?.PeriodNumber,
+                    "Reserve and advance slots cannot be stored as people."));
+        }
+        var obligationShares = payingMembers.Sum(x => x.ShareCount);
+        var payingMembershipIds = payingMembers.Select(x => x.Id).ToHashSet();
+        var scheduledMemberShares = _payouts.Where(x => x.RecipientType == PayoutRecipientType.Membership
+                && x.MembershipId.HasValue && payingMembershipIds.Contains(x.MembershipId.Value))
+            .Sum(x => x.ShareCount);
+        if (obligationShares != scheduledMemberShares)
+            errors.Add(new("association.financial_imbalance", "payouts", null,
+                "Paying member obligations must equal their regular scheduled payout shares."));
+        return errors;
     }
+
+    public static string NormalizeName(string name) => NormalizeDisplayName(name).ToUpperInvariant();
+    private static string NormalizeDisplayName(string name) =>
+        string.Join(' ', name.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 }

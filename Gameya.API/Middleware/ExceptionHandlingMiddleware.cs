@@ -14,6 +14,8 @@ public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Ex
         {
             var (status, code, title) = exception switch
             {
+                AssociationBusinessValidationException => (StatusCodes.Status422UnprocessableEntity,
+                    "association.configuration_invalid", "Association configuration is invalid"),
                 RequestValidationException => (StatusCodes.Status400BadRequest, "validation.failed", "Validation failed"),
                 AuthenticationException e => (StatusCodes.Status401Unauthorized, e.Code, "Authentication failed"),
                 ForbiddenException e => (StatusCodes.Status403Forbidden, e.Code, "Forbidden"),
@@ -25,7 +27,7 @@ public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Ex
                 _ => (StatusCodes.Status500InternalServerError, "server.error", "Unexpected error")
             };
             if (status >= 500) logger.LogError(exception, "Unhandled request failure for {Path}", context.Request.Path);
-            else logger.LogWarning("Request rejected with {Code} for {Path}", code, context.Request.Path);
+            else logger.LogWarning(exception, "Request rejected with {Code} for {Path}", code, context.Request.Path);
             var arabic = LocalizationMessages.IsArabic(context.Request);
             var problem = new ProblemDetails
             {
@@ -40,6 +42,14 @@ public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Ex
             if (exception is RequestValidationException validation)
                 problem.Extensions["errors"] = validation.Errors.ToDictionary(x => x.Key,
                     x => x.Value.Select(value => arabic ? LocalizationMessages.Arabic(value) : LocalizationMessages.English(value)).ToArray());
+            if (exception is AssociationBusinessValidationException businessValidation)
+                problem.Extensions["errors"] = businessValidation.Errors.Select(error => new
+                {
+                    error.Code,
+                    error.Field,
+                    error.PeriodNumber,
+                    Message = arabic ? LocalizationMessages.Arabic(error.Code) : error.Message
+                }).ToArray();
             context.Response.StatusCode = status;
             context.Response.ContentType = "application/problem+json";
             await context.Response.WriteAsJsonAsync(problem);
@@ -58,6 +68,13 @@ internal static class LocalizationMessages
         ["association.name_required"] = "Association name is required.",
         ["association.invalid_months"] = "Number of months is invalid.",
         ["association.invalid_contribution"] = "Monthly contribution is invalid.",
+        ["association.configuration_invalid"] = "The association configuration contains business validation errors.",
+        ["association.periods_required"] = "All association periods must exist before starting.",
+        ["association.members_required"] = "At least one paying member is required.",
+        ["association.period_payout_required"] = "Every period must have at least one payout assignment.",
+        ["association.member_payout_mismatch"] = "A member's scheduled payout shares must equal their subscribed shares.",
+        ["association.financial_imbalance"] = "Member obligations and regular payout shares do not balance.",
+        ["association.duplicate_name"] = "An association with the same name already exists.",
         ["person.name_required"] = "Person name is required.",
         ["person.phone_required"] = "Phone number is required.",
         ["person.invalid_phone"] = "Phone number is invalid.",
@@ -69,6 +86,9 @@ internal static class LocalizationMessages
         ["payout.invalid_recipient_type"] = "Payout recipient type is invalid.",
         ["payout.membership_required"] = "A member payout requires a membership.",
         ["payout.reserve_full_share"] = "An unnamed reserve must be exactly one full share.",
+        ["payout.virtual_full_share"] = "Reserve and advance slots must be exactly one full share.",
+        ["payout.virtual_cannot_be_person"] = "Reserve and advance slots cannot be stored as people.",
+        ["payout.beneficiary_not_found"] = "The virtual slot beneficiary must be an association member.",
         ["payout.reason_too_long"] = "The payout change reason is too long.",
         ["payment.invalid_amount"] = "Payment amount is invalid.",
         ["payment.invalid_method"] = "Payment method is invalid.",
@@ -119,9 +139,13 @@ internal static class LocalizationMessages
         ["association.name_required"] = "اسم الجمعية مطلوب.",
         ["association.invalid_months"] = "عدد الشهور غير صحيح.",
         ["association.invalid_contribution"] = "قيمة الاشتراك الشهري غير صحيحة.",
+        ["association.configuration_invalid"] = "راجع إعداد الجمعية؛ توجد أخطاء يجب تصحيحها قبل البدء.",
+        ["association.periods_required"] = "يجب إنشاء كل فترات الجمعية قبل البدء.",
+        ["association.period_payout_required"] = "كل فترة يجب أن تحتوي على مستفيد قبض واحد على الأقل.",
+        ["association.member_payout_mismatch"] = "حصص قبض العضو المجدولة يجب أن تساوي حصص اشتراكه.",
+        ["association.duplicate_name"] = "يوجد لدى المالك جمعية أخرى بنفس الاسم.",
         ["association.financial_imbalance"] = "التزامات كل عضو دافع لا تطابق قيمة قبضه المجدولة.",
         ["association.members_required"] = "لازم تضيف عضو دافع واحد على الأقل.",
-        ["association.periods_required"] = "لازم تكون كل فترات الجمعية جاهزة قبل التشغيل.",
         ["association.members_after_start"] = "لا يمكن إضافة عضو عادي بعد تشغيل الجمعية.",
         ["association.start_from_draft"] = "يمكن تشغيل الجمعية وهي مسودة فقط.",
         ["association.pause_from_active"] = "يمكن إيقاف الجمعية مؤقتًا وهي نشطة فقط.",
@@ -149,6 +173,9 @@ internal static class LocalizationMessages
         ["payout.invalid_recipient_type"] = "نوع مستلم القبض غير صحيح.",
         ["payout.membership_required"] = "لازم تحدد العضوية لموعد قبض العضو.",
         ["payout.reserve_full_share"] = "بدون اسم لازم يمثل سهمًا كاملًا واحدًا.",
+        ["payout.virtual_full_share"] = "خانة بدون اسم أو سلف يجب أن تمثل سهمًا كاملًا واحدًا.",
+        ["payout.virtual_cannot_be_person"] = "بدون اسم وسلف خانات افتراضية وليسا أشخاصًا.",
+        ["payout.beneficiary_not_found"] = "مستفيد الخانة الافتراضية يجب أن يكون عضوًا في الجمعية.",
         ["payout.reserve_cannot_be_person"] = "بدون اسم لا يمكن تسجيله كشخص.",
         ["payout.future_only"] = "يمكن تعديل مواعيد القبض المستقبلية فقط.",
         ["payout.historical_immutable"] = "لا يمكن تغيير قبض تاريخي.",

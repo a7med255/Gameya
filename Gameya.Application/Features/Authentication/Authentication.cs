@@ -51,6 +51,35 @@ public sealed class LoginHandler(IIdentityService identity) : IRequestHandler<Lo
     public Task<AuthTokensDto> Handle(LoginCommand request, CancellationToken cancellationToken) => identity.LoginAsync(request.Email, request.Password, cancellationToken);
 }
 
+public sealed record RequestPasswordResetCommand(string Email) : IRequest;
+public sealed class RequestPasswordResetValidator : AbstractValidator<RequestPasswordResetCommand>
+{
+    public RequestPasswordResetValidator() => RuleFor(x => x.Email).NotEmpty().EmailAddress()
+        .WithErrorCode("auth.invalid_email");
+}
+public sealed class RequestPasswordResetHandler(IIdentityService identity)
+    : IRequestHandler<RequestPasswordResetCommand>
+{
+    public async Task Handle(RequestPasswordResetCommand request, CancellationToken cancellationToken) =>
+        await identity.RequestPasswordResetAsync(request.Email, cancellationToken);
+}
+
+public sealed record ResetPasswordCommand(string UserId, string Token, string NewPassword) : IRequest;
+public sealed class ResetPasswordValidator : AbstractValidator<ResetPasswordCommand>
+{
+    public ResetPasswordValidator()
+    {
+        RuleFor(x => x.UserId).NotEmpty().WithErrorCode("auth.invalid_password_reset");
+        RuleFor(x => x.Token).NotEmpty().WithErrorCode("auth.invalid_password_reset");
+        RuleFor(x => x.NewPassword).NotEmpty().MinimumLength(10).WithErrorCode("auth.weak_password");
+    }
+}
+public sealed class ResetPasswordHandler(IIdentityService identity) : IRequestHandler<ResetPasswordCommand>
+{
+    public async Task Handle(ResetPasswordCommand request, CancellationToken cancellationToken) =>
+        await identity.ResetPasswordAsync(request.UserId, request.Token, request.NewPassword, cancellationToken);
+}
+
 public sealed record RefreshTokenCommand(string RefreshToken) : IRequest<AuthTokensDto>;
 public sealed class RefreshTokenValidator : AbstractValidator<RefreshTokenCommand>
 {

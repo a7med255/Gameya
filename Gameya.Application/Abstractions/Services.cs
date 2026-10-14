@@ -29,7 +29,8 @@ public interface IPersonAccessService
 {
     IQueryable<Guid> GetAccessiblePersonIds(string userId, bool isAdmin, bool isOwner);
     Task EnsureAccessAsync(Guid personId, CancellationToken cancellationToken);
-    Task GrantOwnerAccessAsync(string ownerId, Guid personId, CancellationToken cancellationToken);
+    Task GrantOwnerAccessAsync(string ownerId, Guid personId, string normalizedName, string normalizedPhone,
+        CancellationToken cancellationToken);
 }
 
 public interface IIdentityService
@@ -37,6 +38,8 @@ public interface IIdentityService
     Task<RegistrationResultDto> RegisterOwnerAsync(string name, string email, string password, CancellationToken cancellationToken);
     Task ResendOwnerConfirmationAsync(string email, CancellationToken cancellationToken);
     Task ConfirmEmailAsync(string userId, string token, CancellationToken cancellationToken);
+    Task RequestPasswordResetAsync(string email, CancellationToken cancellationToken);
+    Task ResetPasswordAsync(string userId, string token, string newPassword, CancellationToken cancellationToken);
     Task<AuthTokensDto> LoginAsync(string email, string password, CancellationToken cancellationToken);
     Task<AuthTokensDto> RefreshAsync(string refreshToken, CancellationToken cancellationToken);
     Task RevokeAsync(string refreshToken, CancellationToken cancellationToken);

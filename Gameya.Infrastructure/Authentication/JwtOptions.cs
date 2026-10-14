@@ -19,6 +19,14 @@ public sealed class AssociationCalendarOptions
 public sealed class EmailOptions
 {
     public const string SectionName = "Email";
+    public string SmtpHost { get; init; } = string.Empty;
+    public int? SmtpPort { get; init; }
+    public string SmtpUsername { get; init; } = string.Empty;
+    public string SmtpPassword { get; init; } = string.Empty;
+    public string FromEmail { get; init; } = string.Empty;
+    public bool? EnableSsl { get; init; }
+
+    // Backward-compatible aliases for existing installations. New deployments should use the Smtp* keys above.
     public string Host { get; init; } = string.Empty;
     public int Port { get; init; } = 587;
     public bool UseSsl { get; init; }

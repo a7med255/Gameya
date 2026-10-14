@@ -20,6 +20,7 @@ public interface IApplicationDbContext
     Task<Association?> FindAssociationForUpdateAsync(Guid id, CancellationToken cancellationToken);
     Task<T?> FindAsync<T>(Guid id, CancellationToken cancellationToken) where T : class;
     ValueTask AddEntityAsync<T>(T entity, CancellationToken cancellationToken) where T : class;
+    void RemoveEntities<T>(IEnumerable<T> entities) where T : class;
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
     Task<T> ExecuteSerializableAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken);
 }

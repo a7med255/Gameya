@@ -12,4 +12,13 @@ describe('ApiErrorService', () => {
     const error = new HttpErrorResponse({ status: 409, error: { title: 'تعارض', detail: 'تم تعديل البيانات من مستخدم آخر.', traceId: 'trace' } });
     expect(service.message(error)).toBe('تم تعديل البيانات من مستخدم آخر.');
   });
+
+  it('returns structured association business errors without flattening them', () => {
+    const error = new HttpErrorResponse({ status: 422, error: { errors: [
+      { code: 'association.period_payout_required', field: 'periods[1]', periodNumber: 2, message: 'الشهر الثاني بدون مستفيد.' },
+    ] } });
+    expect(service.businessErrors(error)).toEqual([
+      { code: 'association.period_payout_required', field: 'periods[1]', periodNumber: 2, message: 'الشهر الثاني بدون مستفيد.' },
+    ]);
+  });
 });

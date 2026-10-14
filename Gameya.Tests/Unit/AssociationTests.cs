@@ -22,7 +22,7 @@ public sealed class AssociationTests
         var period = association.Periods.First();
         var error = Assert.Throws<DomainException>(() =>
             association.AddPayout(period.Id, PayoutRecipientType.ReserveSlot, null, 0.5m, Now));
-        Assert.Equal("payout.reserve_full_share", error.Code);
+        Assert.Equal("payout.virtual_full_share", error.Code);
         var reserve = association.AddPayout(period.Id, PayoutRecipientType.ReserveSlot, null, 1m, Now);
         Assert.Null(reserve.MembershipId);
     }
@@ -36,6 +36,7 @@ public sealed class AssociationTests
         var period = association.Periods.First();
         association.AddPayout(period.Id, PayoutRecipientType.Membership, first.Id, 0.5m, Now);
         association.AddPayout(period.Id, PayoutRecipientType.Membership, second.Id, 0.5m, Now);
+        association.AddPayout(association.Periods.Last().Id, PayoutRecipientType.ReserveSlot, null, 1m, Now);
         Assert.Equal(2, association.Payouts.Count(x => x.PeriodId == period.Id));
         association.Start(Now);
     }
@@ -45,10 +46,8 @@ public sealed class AssociationTests
     {
         var association = NewAssociation();
         var paying = association.AddMember(Guid.NewGuid(), 1m, MembershipKind.Paying, Now);
-        var advance = association.AddMember(Guid.NewGuid(), 1m, MembershipKind.Advance, Now);
         association.AddPayout(association.Periods.First().Id, PayoutRecipientType.Membership, paying.Id, 1m, Now);
-        association.AddPayout(association.Periods.First().Id, PayoutRecipientType.Membership, advance.Id, 1m, Now);
-        association.AddPayout(association.Periods.Last().Id, PayoutRecipientType.ReserveSlot, null, 1m, Now);
+        association.AddPayout(association.Periods.Last().Id, PayoutRecipientType.AdvanceSlot, null, 1m, Now);
         association.Start(Now);
         Assert.Equal(AssociationStatus.Active, association.Status);
     }
@@ -58,8 +57,8 @@ public sealed class AssociationTests
     {
         var association = NewAssociation();
         association.AddMember(Guid.NewGuid(), 1.5m, MembershipKind.Paying, Now);
-        var error = Assert.Throws<DomainException>(() => association.Start(Now));
-        Assert.Equal("association.financial_imbalance", error.Code);
+        var error = Assert.Throws<AssociationBusinessValidationException>(() => association.Start(Now));
+        Assert.Contains(error.Errors, item => item.Code == "association.financial_imbalance");
     }
 
     [Fact]
@@ -70,9 +69,9 @@ public sealed class AssociationTests
         association.AddMember(Guid.NewGuid(), 1m, MembershipKind.Paying, Now);
         association.AddPayout(association.Periods.First().Id, PayoutRecipientType.Membership, first.Id, 2m, Now);
 
-        var error = Assert.Throws<DomainException>(() => association.Start(Now));
+        var error = Assert.Throws<AssociationBusinessValidationException>(() => association.Start(Now));
 
-        Assert.Equal("association.financial_imbalance", error.Code);
+        Assert.Equal(2, error.Errors.Count(item => item.Code == "association.member_payout_mismatch"));
     }
 
     [Fact]
@@ -151,6 +150,54 @@ public sealed class AssociationTests
         Assert.Equal(AssociationStatus.Completed, association.Status);
         Assert.Throws<DomainException>(() => association.AddPayout(association.Periods.Single().Id,
             PayoutRecipientType.ReserveSlot, null, 1m, Now.AddMonths(2)));
+    }
+
+    [Fact]
+    public void Start_returns_all_missing_period_and_member_errors()
+    {
+        var association = NewAssociation(3);
+        association.AddMember(Guid.NewGuid(), 1m, MembershipKind.Paying, Now);
+
+        var error = Assert.Throws<AssociationBusinessValidationException>(() => association.Start(Now));
+
+        Assert.Equal(3, error.Errors.Count(item => item.Code == "association.period_payout_required"));
+        Assert.Contains(error.Errors, item => item.Code == "association.member_payout_mismatch");
+        Assert.Contains(error.Errors, item => item.Code == "association.financial_imbalance");
+    }
+
+    [Fact]
+    public void Completing_the_last_outstanding_payout_completes_the_association()
+    {
+        var association = NewAssociation(1);
+        var member = association.AddMember(Guid.NewGuid(), 1m, MembershipKind.Paying, Now);
+        var payout = association.AddPayout(association.Periods.Single().Id,
+            PayoutRecipientType.Membership, member.Id, 1m, Now);
+        association.Start(Now);
+
+        association.CompletePayout(payout.Id, association.Periods.Single().PeriodDate, Now.AddMonths(1));
+
+        Assert.Equal(AssociationStatus.Completed, association.Status);
+        Assert.All(association.Periods, period => Assert.Equal(PeriodStatus.Closed, period.Status));
+    }
+
+    [Fact]
+    public void Cancellation_preserves_history_and_stops_the_association()
+    {
+        var association = StartedAssociation(1m);
+        var payoutId = association.Payouts.Single().Id;
+
+        association.Cancel(Now.AddDays(1));
+
+        Assert.Equal(AssociationStatus.Cancelled, association.Status);
+        Assert.Contains(association.Payouts, payout => payout.Id == payoutId);
+    }
+
+    [Theory]
+    [InlineData("  Family   2027 ", "FAMILY 2027")]
+    [InlineData("جمعية   العيلة", "جمعية العيلة")]
+    public void Association_name_normalization_trims_and_collapses_whitespace(string value, string expected)
+    {
+        Assert.Equal(expected, Association.NormalizeName(value));
     }
 
     private static Association NewAssociation(int months = 2, decimal contribution = 5_000m)

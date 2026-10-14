@@ -43,6 +43,11 @@ namespace Gameya.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<int>("NumberOfMonths")
                         .HasColumnType("int");
 
@@ -67,6 +72,9 @@ namespace Gameya.Infrastructure.Persistence.Migrations
                         .HasColumnType("datetimeoffset");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("OwnerId", "NormalizedName")
+                        .IsUnique();
 
                     b.HasIndex("OwnerId", "Status");
 
@@ -148,6 +156,9 @@ namespace Gameya.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("AssociationId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("int");
 
                     b.Property<DateTimeOffset>("JoinedAtUtc")
                         .HasColumnType("datetimeoffset");
@@ -416,6 +427,11 @@ namespace Gameya.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("NormalizedPhoneNumber")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
                     b.Property<string>("PhoneNumber")
                         .IsRequired()
                         .HasMaxLength(30)
@@ -431,11 +447,9 @@ namespace Gameya.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("NormalizedFullName")
-                        .IsUnique();
+                    b.HasIndex("NormalizedFullName");
 
-                    b.HasIndex("PhoneNumber")
-                        .IsUnique();
+                    b.HasIndex("NormalizedPhoneNumber");
 
                     b.HasIndex("SubscriberCode")
                         .IsUnique();
@@ -680,9 +694,25 @@ namespace Gameya.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("GrantedAtUtc")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("NormalizedPhone")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
                     b.HasKey("OwnerId", "PersonId");
 
                     b.HasIndex("PersonId");
+
+                    b.HasIndex("OwnerId", "NormalizedName")
+                        .IsUnique();
+
+                    b.HasIndex("OwnerId", "NormalizedPhone")
+                        .IsUnique();
 
                     b.ToTable("OwnerPersonAccess", (string)null);
                 });

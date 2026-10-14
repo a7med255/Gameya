@@ -63,11 +63,24 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     public async ValueTask AddEntityAsync<T>(T entity, CancellationToken cancellationToken) where T : class =>
         await Set<T>().AddAsync(entity, cancellationToken);
 
+    public void RemoveEntities<T>(IEnumerable<T> entities) where T : class => Set<T>().RemoveRange(entities);
+
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         EnforceImmutableHistory();
         var aggregateRoots = ChangeTracker.Entries<AggregateRoot>().Select(x => x.Entity).Where(x => x.DomainEvents.Count != 0).ToList();
-        var result = await base.SaveChangesAsync(cancellationToken);
+        int result;
+        try
+        {
+            result = await base.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            logger.LogWarning(exception, "Persistence concurrency conflict for entries {Entries}",
+                string.Join(", ", exception.Entries.Select(entry =>
+                    $"{entry.Metadata.ClrType.Name}:{entry.State}")));
+            throw;
+        }
         foreach (var aggregate in aggregateRoots)
         {
             foreach (var domainEvent in aggregate.DomainEvents)

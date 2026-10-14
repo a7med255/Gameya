@@ -52,6 +52,8 @@ public sealed class OwnerPersonAccess
 {
     public string OwnerId { get; set; } = string.Empty;
     public Guid PersonId { get; set; }
+    public string NormalizedName { get; set; } = string.Empty;
+    public string NormalizedPhone { get; set; } = string.Empty;
     public DateTimeOffset GrantedAtUtc { get; set; }
 }
 

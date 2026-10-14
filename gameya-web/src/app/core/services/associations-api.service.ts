@@ -4,9 +4,10 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { API_ENDPOINTS } from '../constants/api-endpoints';
 import {
-  AddMemberRequest, AddPayoutRequest, AssociationDetailsDto, AssociationStatus, AssociationSummaryDto,
+  AddMemberRequest, AddPayoutRequest, AssociationDetailsDto, AssociationEditorDto, AssociationStatus, AssociationSummaryDto,
   CreatedId, CreateAssociationRequest, InvitePaymentUserRequest, MovePayoutRequest, PagedResult,
   PayoutDto, ReplaceMemberRequest,
+  SaveAssociationConfigurationRequest,
 } from '../models/api.models';
 
 @Injectable({ providedIn: 'root' })
@@ -23,12 +24,20 @@ export class AssociationsApiService {
 
   get(id: string): Observable<AssociationDetailsDto> { return this.http.get<AssociationDetailsDto>(`${this.url}/${id}`); }
   create(request: CreateAssociationRequest): Observable<AssociationDetailsDto> { return this.http.post<AssociationDetailsDto>(this.url, request); }
+  createConfiguration(request: SaveAssociationConfigurationRequest): Observable<AssociationDetailsDto> {
+    return this.http.post<AssociationDetailsDto>(`${this.url}/configuration`, request);
+  }
+  saveConfiguration(id: string, request: SaveAssociationConfigurationRequest): Observable<AssociationDetailsDto> {
+    return this.http.put<AssociationDetailsDto>(`${this.url}/${id}/configuration`, request);
+  }
+  editor(id: string): Observable<AssociationEditorDto> { return this.http.get<AssociationEditorDto>(`${this.url}/${id}/editor`); }
   addMember(id: string, request: AddMemberRequest): Observable<CreatedId> { return this.http.post<CreatedId>(`${this.url}/${id}/members`, request); }
   changeShares(id: string, memberId: string, shareCount: number): Observable<void> {
     return this.http.patch<void>(`${this.url}/${id}/members/${memberId}/shares`, { shareCount });
   }
   start(id: string): Observable<void> { return this.http.post<void>(`${this.url}/${id}/start`, {}); }
   pause(id: string): Observable<void> { return this.http.post<void>(`${this.url}/${id}/pause`, {}); }
+  cancel(id: string): Observable<void> { return this.http.post<void>(`${this.url}/${id}/cancel`, {}); }
   resume(id: string): Observable<void> { return this.http.post<void>(`${this.url}/${id}/resume`, {}); }
   complete(id: string): Observable<void> { return this.http.post<void>(`${this.url}/${id}/complete`, {}); }
   closePeriod(id: string, periodId: string): Observable<void> { return this.http.post<void>(`${this.url}/${id}/periods/${periodId}/close`, {}); }

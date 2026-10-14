@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { ProblemDetails } from '../models/api.models';
+import { BusinessValidationError, ProblemDetails } from '../models/api.models';
 
 const STATUS_MESSAGES: Readonly<Record<number, string>> = {
   0: 'تعذر الاتصال بالخدمة. راجع الإنترنت وحاول تاني.',
@@ -24,7 +24,14 @@ export class ApiErrorService {
 
   fieldErrors(error: unknown): Readonly<Record<string, readonly string[]>> {
     if (!(error instanceof HttpErrorResponse) || !isProblemDetails(error.error)) return {};
-    return error.error.errors ?? {};
+    const errors = error.error.errors;
+    if (!errors || Array.isArray(errors)) return {};
+    return errors as Readonly<Record<string, readonly string[]>>;
+  }
+
+  businessErrors(error: unknown): readonly BusinessValidationError[] {
+    if (!(error instanceof HttpErrorResponse) || !isProblemDetails(error.error)) return [];
+    return Array.isArray(error.error.errors) ? error.error.errors as readonly BusinessValidationError[] : [];
   }
 }
 

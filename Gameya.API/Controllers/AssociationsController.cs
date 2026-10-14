@@ -14,12 +14,25 @@ public sealed class AssociationsController(ISender sender) : ControllerBase
     [HttpPost, Authorize(Policy = AppPolicies.OwnerOrAdmin)]
     public async Task<IActionResult> Create(CreateAssociationCommand command, CancellationToken cancellationToken)
     { var result = await sender.Send(command, cancellationToken); return CreatedAtAction(nameof(Get), new { id = result.Id }, result); }
+    [HttpPost("configuration"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
+    public async Task<IActionResult> CreateConfiguration(SaveAssociationConfigurationRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(request.ToCommand(null), cancellationToken);
+        return CreatedAtAction(nameof(Get), new { id = result.Id }, result);
+    }
     [HttpGet]
     public async Task<IActionResult> List([FromQuery] string? search, [FromQuery] AssociationStatus? status,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default) =>
         Ok(await sender.Send(new GetAssociationsQuery(search, status, page, pageSize), cancellationToken));
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken) => Ok(await sender.Send(new GetAssociationByIdQuery(id), cancellationToken));
+    [HttpGet("{id:guid}/editor")]
+    public async Task<IActionResult> Editor(Guid id, CancellationToken cancellationToken) =>
+        Ok(await sender.Send(new GetAssociationEditorQuery(id), cancellationToken));
+    [HttpPut("{id:guid}/configuration"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
+    public async Task<IActionResult> SaveConfiguration(Guid id, SaveAssociationConfigurationRequest request,
+        CancellationToken cancellationToken) => Ok(await sender.Send(request.ToCommand(id), cancellationToken));
     [HttpPost("{id:guid}/members"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
     public async Task<IActionResult> AddMember(Guid id, AddMemberRequest request, CancellationToken cancellationToken)
     { var memberId = await sender.Send(new AddMemberCommand(id, request.PersonId, request.ShareCount, request.Kind), cancellationToken); return Created($"/api/associations/{id}/members/{memberId}", new { id = memberId }); }
@@ -31,6 +44,8 @@ public sealed class AssociationsController(ISender sender) : ControllerBase
     public async Task<IActionResult> Start(Guid id, CancellationToken cancellationToken) { await sender.Send(new StartAssociationCommand(id), cancellationToken); return NoContent(); }
     [HttpPost("{id:guid}/pause"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
     public async Task<IActionResult> Pause(Guid id, CancellationToken cancellationToken) { await sender.Send(new PauseAssociationCommand(id), cancellationToken); return NoContent(); }
+    [HttpPost("{id:guid}/cancel"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
+    public async Task<IActionResult> Cancel(Guid id, CancellationToken cancellationToken) { await sender.Send(new CancelAssociationCommand(id), cancellationToken); return NoContent(); }
     [HttpPost("{id:guid}/resume")]
     public async Task<IActionResult> Resume(Guid id, CancellationToken cancellationToken) { await sender.Send(new ResumeAssociationCommand(id), cancellationToken); return NoContent(); }
     [HttpPost("{id:guid}/periods/{periodId:guid}/close"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
@@ -67,3 +82,11 @@ public sealed record AddPayoutRequest(Guid PeriodId, PayoutRecipientType Recipie
 public sealed record MovePayoutRequest(Guid PeriodId, string? Reason);
 public sealed record ReserveBeneficiaryRequest(Guid PersonId);
 public sealed record ReplaceMemberRequest(IReadOnlyCollection<ReplacementPersonInput> Replacements, string? Reason);
+public sealed record SaveAssociationConfigurationRequest(string Name, DateOnly StartDate, int NumberOfMonths,
+    decimal MonthlyContribution, IReadOnlyCollection<AssociationEditorMemberInput> Members,
+    IReadOnlyCollection<AssociationEditorPayoutInput> Payouts, bool StartAssociation)
+{
+    public SaveAssociationConfigurationCommand ToCommand(Guid? associationId) =>
+        new(associationId, Name, StartDate, NumberOfMonths, MonthlyContribution, Members, Payouts,
+            StartAssociation);
+}

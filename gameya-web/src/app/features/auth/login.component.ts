@@ -27,6 +27,7 @@ import { AuthFrameComponent } from './auth-frame.component';
           <input class="control" id="password" type="password" dir="ltr" autocomplete="current-password" formControlName="password" [attr.aria-invalid]="invalid('password')">
           @if (invalid('password')) { <span class="field__error">كلمة المرور مطلوبة.</span> }
         </div>
+        <a class="muted" routerLink="/auth/forgot-password">نسيت كلمة المرور؟</a>
         <button class="btn btn--primary btn--block" type="submit" [disabled]="loading()">{{ loading() ? 'جاري الدخول…' : 'تسجيل الدخول' }}</button>
       </form>
       <p class="muted" style="text-align:center">لسه معندكش حساب؟ <a class="success-text" routerLink="/auth/register">اعمل حساب جديد</a></p>

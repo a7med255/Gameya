@@ -19,7 +19,8 @@ public sealed class MonthlyReportGenerator(ApplicationDbContext db) : IReportGen
         CancellationToken cancellationToken)
     {
         if (month is < 1 or > 12 || year is < 2000 or > 2200) throw new ConflictException("report.invalid_period", "Invalid report period.");
-        var associations = await db.AssociationsSet.AsNoTracking().Where(x => includeAllOwners || x.OwnerId == userId)
+        var associations = await db.AssociationsSet.AsNoTracking().Where(x => x.Status == AssociationStatus.Active
+                && (includeAllOwners || x.OwnerId == userId))
             .Select(x => new { x.Id, x.Name, x.Status, x.MonthlyContribution }).ToListAsync(cancellationToken);
         var ids = associations.Select(x => x.Id).ToArray();
         var paid = await db.PaymentAllocationsSet.AsNoTracking().Where(x => ids.Contains(x.AssociationId))

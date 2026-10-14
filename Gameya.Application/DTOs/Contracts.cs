@@ -21,10 +21,15 @@ public sealed record AssociationDetailsDto(Guid Id, string Name, DateOnly StartD
     IReadOnlyCollection<MembershipDto> Memberships, IReadOnlyCollection<PeriodDto> Periods,
     IReadOnlyCollection<PayoutDto> Payouts);
 public sealed record MembershipDto(Guid Id, Guid PersonId, string PersonName, decimal ShareCount,
-    MembershipKind Kind, MembershipStatus Status, DateTimeOffset JoinedAtUtc, DateTimeOffset? LeftAtUtc);
+    MembershipKind Kind, MembershipStatus Status, int DisplayOrder, DateTimeOffset JoinedAtUtc,
+    DateTimeOffset? LeftAtUtc);
 public sealed record PeriodDto(Guid Id, int PeriodNumber, DateOnly PeriodDate, DateOnly DueDate, PeriodStatus Status);
 public sealed record PayoutDto(Guid Id, Guid PeriodId, int PeriodNumber, PayoutRecipientType RecipientType,
     Guid? MembershipId, Guid? BeneficiaryPersonId, decimal ShareCount, decimal Value, PayoutStatus Status);
+public sealed record AssociationEditorValidationDto(string Code, string? Field, int? PeriodNumber, string Message);
+public sealed record AssociationEditorDto(AssociationDetailsDto Association, decimal TotalMemberShares,
+    decimal TotalScheduledMemberShares, decimal FullSharePayoutValue, decimal TotalMonthlyObligation,
+    IReadOnlyCollection<AssociationEditorValidationDto> ValidationErrors);
 
 public sealed record PaymentDto(Guid Id, Guid PersonId, decimal Amount, PaymentMethod Method, DateTimeOffset PaidAtUtc,
     PaymentEntryType EntryType, IReadOnlyCollection<PaymentAllocationDto> Allocations, IReadOnlyCollection<PaymentCreditDto> Credits);

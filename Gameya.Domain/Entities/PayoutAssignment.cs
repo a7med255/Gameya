@@ -10,20 +10,21 @@ public sealed class PayoutAssignment : AggregateRoot
     private PayoutAssignment() { }
 
     internal PayoutAssignment(Guid associationId, Guid periodId, PayoutRecipientType recipientType,
-        Guid? membershipId, decimal shareCount, DateTimeOffset now)
+        Guid? membershipId, decimal shareCount, DateTimeOffset now, Guid? beneficiaryPersonId = null)
     {
         Guard.Against(shareCount <= 0 || decimal.Round(shareCount * 2, 0) != shareCount * 2,
             "payout.invalid_shares", "Payout share count must be positive and use half-share increments.");
-        Guard.Against(recipientType == PayoutRecipientType.ReserveSlot && shareCount != 1,
-            "payout.reserve_full_share", "An unnamed reserve slot must represent exactly one full share.");
+        Guard.Against((recipientType is PayoutRecipientType.ReserveSlot or PayoutRecipientType.AdvanceSlot) && shareCount != 1,
+            "payout.virtual_full_share", "A reserve or advance slot must represent exactly one full share.");
         Guard.Against(recipientType == PayoutRecipientType.Membership && membershipId is null,
             "payout.membership_required", "A member payout requires a membership.");
-        Guard.Against(recipientType == PayoutRecipientType.ReserveSlot && membershipId is not null,
-            "payout.reserve_cannot_be_person", "An unnamed reserve slot cannot be modeled as a person.");
+        Guard.Against((recipientType is PayoutRecipientType.ReserveSlot or PayoutRecipientType.AdvanceSlot) && membershipId is not null,
+            "payout.virtual_cannot_be_person", "Reserve and advance slots cannot be modeled as people.");
         AssociationId = associationId;
         PeriodId = periodId;
         RecipientType = recipientType;
         MembershipId = membershipId;
+        BeneficiaryPersonId = beneficiaryPersonId;
         ShareCount = shareCount;
         Status = PayoutStatus.Scheduled;
         CreatedAtUtc = now;
@@ -48,7 +49,8 @@ public sealed class PayoutAssignment : AggregateRoot
 
     internal void AssociateReserveBeneficiary(Guid personId)
     {
-        Guard.Against(RecipientType != PayoutRecipientType.ReserveSlot, "payout.not_reserve", "Only a reserve payout can have a later beneficiary.");
+        Guard.Against(RecipientType is not (PayoutRecipientType.ReserveSlot or PayoutRecipientType.AdvanceSlot),
+            "payout.not_virtual", "Only a reserve or advance payout can have a later beneficiary.");
         Guard.Against(Status == PayoutStatus.Completed, "payout.historical_immutable", "A completed payout cannot be changed.");
         BeneficiaryPersonId = personId;
     }

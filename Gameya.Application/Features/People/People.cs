@@ -25,11 +25,15 @@ public sealed class CreatePersonHandler(IApplicationDbContext db, ISubscriberCod
     public async Task<PersonDto> Handle(CreatePersonCommand request, CancellationToken cancellationToken)
     {
         var phone = request.PhoneNumber.Trim();
+        var normalizedPhone = Person.NormalizePhone(phone);
         var normalizedName = Person.NormalizeName(request.FullName);
-        if (await db.People.AnyAsync(x => x.PhoneNumber == phone, cancellationToken))
+        var ownerId = current.UserId ?? throw new ForbiddenException();
+        var accessiblePersonIds = personAccess.GetAccessiblePersonIds(ownerId, current.IsInRole(AppRoles.Admin), true);
+        if (await db.People.AnyAsync(x => accessiblePersonIds.Contains(x.Id)
+                && x.NormalizedPhoneNumber == normalizedPhone, cancellationToken))
             throw new ConflictException("person.duplicate_phone", "Phone number already exists.");
-        // Exact normalized-name uniqueness is isolated here so the rule can be replaced when the owner finalizes it.
-        if (await db.People.AnyAsync(x => x.NormalizedFullName == normalizedName, cancellationToken))
+        if (await db.People.AnyAsync(x => accessiblePersonIds.Contains(x.Id)
+                && x.NormalizedFullName == normalizedName, cancellationToken))
             throw new ConflictException("person.duplicate_name", "A person with the same normalized name already exists.");
 
         SubscriberCode code;
@@ -38,7 +42,8 @@ public sealed class CreatePersonHandler(IApplicationDbContext db, ISubscriberCod
 
         var person = new Person(request.FullName, phone, code, clock.UtcNow);
         await db.AddEntityAsync(person, cancellationToken);
-        await personAccess.GrantOwnerAccessAsync(current.UserId ?? throw new ForbiddenException(), person.Id, cancellationToken);
+        await personAccess.GrantOwnerAccessAsync(ownerId, person.Id, person.NormalizedFullName,
+            person.NormalizedPhoneNumber, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("PersonCreated", nameof(Person), person.Id.ToString(), null,
             new { person.FullName, person.PhoneNumber, SubscriberCode = person.SubscriberCode.Value }, cancellationToken);

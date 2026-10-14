@@ -66,6 +66,32 @@ public sealed class IdentityService(
         EnsureSucceeded(await users.ConfirmEmailAsync(user, decoded), "auth.invalid_confirmation");
     }
 
+    public async Task RequestPasswordResetAsync(string emailAddress, CancellationToken cancellationToken)
+    {
+        var user = await users.FindByEmailAsync(emailAddress.Trim());
+        if (user is null || !user.IsActive || !await users.IsEmailConfirmedAsync(user)) return;
+        var reset = await users.GeneratePasswordResetTokenAsync(user);
+        var encoded = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(reset));
+        var url = $"{emailOptions.Value.PublicAppBaseUrl.TrimEnd('/')}/auth/reset-password?userId={Uri.EscapeDataString(user.Id)}&token={Uri.EscapeDataString(encoded)}";
+        await email.SendAsync(user.Email!, "Reset your Gameya password",
+            $"<p>Reset your Gameya password by opening <a href=\"{url}\">this secure link</a>. If you did not request it, ignore this message.</p>",
+            null, null, cancellationToken);
+    }
+
+    public async Task ResetPasswordAsync(string userId, string token, string newPassword,
+        CancellationToken cancellationToken)
+    {
+        var user = await users.FindByIdAsync(userId)
+            ?? throw new AuthenticationException("auth.invalid_password_reset", "Invalid password reset request.");
+        string decoded;
+        try { decoded = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(token)); }
+        catch (FormatException)
+        {
+            throw new AuthenticationException("auth.invalid_password_reset", "Invalid password reset request.");
+        }
+        EnsureSucceeded(await users.ResetPasswordAsync(user, decoded, newPassword), "auth.invalid_password_reset");
+    }
+
     public async Task<AuthTokensDto> LoginAsync(string emailAddress, string password, CancellationToken cancellationToken)
     {
         var user = await users.FindByEmailAsync(emailAddress.Trim());

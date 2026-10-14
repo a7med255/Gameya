@@ -15,7 +15,8 @@ public sealed class GetDashboardHandler(IApplicationDbContext db, ICurrentUser c
     {
         var accessible = access.GetAccessibleAssociationIds(current.UserId ?? throw new ForbiddenException(),
             current.IsInRole(AppRoles.Admin), current.IsInRole(AppRoles.Owner));
-        var associations = db.Associations.AsNoTracking().Where(x => accessible.Contains(x.Id));
+        var associations = db.Associations.AsNoTracking().Where(x => accessible.Contains(x.Id)
+            && (x.Status == AssociationStatus.Active || x.Status == AssociationStatus.Paused));
         var associationRows = await associations.ToListAsync(cancellationToken);
         var ids = associationRows.Select(x => x.Id).ToArray();
         var memberships = await db.Memberships.AsNoTracking()

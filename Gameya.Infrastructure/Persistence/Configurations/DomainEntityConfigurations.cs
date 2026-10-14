@@ -14,10 +14,11 @@ public sealed class PersonConfiguration : IEntityTypeConfiguration<Person>
         b.Property(x => x.FullName).HasMaxLength(200).IsRequired();
         b.Property(x => x.NormalizedFullName).HasMaxLength(200).IsRequired();
         b.Property(x => x.PhoneNumber).HasMaxLength(30).IsRequired();
+        b.Property(x => x.NormalizedPhoneNumber).HasMaxLength(30).IsRequired();
         b.Property(x => x.SubscriberCode).HasConversion(x => x.Value, x => SubscriberCode.Create(x)).HasMaxLength(8).IsRequired();
-        b.HasIndex(x => x.PhoneNumber).IsUnique();
+        b.HasIndex(x => x.NormalizedPhoneNumber);
         b.HasIndex(x => x.SubscriberCode).IsUnique();
-        b.HasIndex(x => x.NormalizedFullName).IsUnique();
+        b.HasIndex(x => x.NormalizedFullName);
         b.Ignore(x => x.DomainEvents);
     }
 }
@@ -28,11 +29,13 @@ public sealed class AssociationConfiguration : IEntityTypeConfiguration<Associat
     {
         b.ToTable("Associations"); b.HasKey(x => x.Id);
         b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+        b.Property(x => x.NormalizedName).HasMaxLength(200).IsRequired();
         b.Property(x => x.MonthlyContribution).HasPrecision(18, 2);
         b.Property(x => x.OwnerId).HasMaxLength(450).IsRequired();
         b.Property(x => x.RowVersion).IsRowVersion();
         b.Ignore(x => x.FullSharePayoutValue); b.Ignore(x => x.DomainEvents);
         b.HasIndex(x => new { x.OwnerId, x.Status });
+        b.HasIndex(x => new { x.OwnerId, x.NormalizedName }).IsUnique();
         b.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.OwnerId).OnDelete(DeleteBehavior.Restrict);
         b.HasMany(x => x.Memberships).WithOne().HasForeignKey(x => x.AssociationId).OnDelete(DeleteBehavior.Restrict);
         b.HasMany(x => x.Periods).WithOne().HasForeignKey(x => x.AssociationId).OnDelete(DeleteBehavior.Restrict);
@@ -200,6 +203,10 @@ public sealed class IdentitySupportConfiguration : IEntityTypeConfiguration<Refr
     public void Configure(EntityTypeBuilder<OwnerPersonAccess> b)
     {
         b.ToTable("OwnerPersonAccess"); b.HasKey(x => new { x.OwnerId, x.PersonId }); b.HasIndex(x => x.PersonId);
+        b.Property(x => x.NormalizedName).HasMaxLength(200).IsRequired();
+        b.Property(x => x.NormalizedPhone).HasMaxLength(30).IsRequired();
+        b.HasIndex(x => new { x.OwnerId, x.NormalizedName }).IsUnique();
+        b.HasIndex(x => new { x.OwnerId, x.NormalizedPhone }).IsUnique();
         b.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.OwnerId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<Person>().WithMany().HasForeignKey(x => x.PersonId).OnDelete(DeleteBehavior.Restrict);
     }

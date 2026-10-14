@@ -26,6 +26,10 @@ public sealed class CreateAssociationHandler(IApplicationDbContext db, ICurrentU
     public async Task<AssociationDetailsDto> Handle(CreateAssociationCommand request, CancellationToken cancellationToken)
     {
         var ownerId = current.UserId ?? throw new ForbiddenException();
+        var normalizedName = Association.NormalizeName(request.Name);
+        if (await db.Associations.AnyAsync(x => x.OwnerId == ownerId && x.NormalizedName == normalizedName,
+                cancellationToken))
+            throw new ConflictException("association.duplicate_name", "An association with this name already exists.");
         var association = new Association(request.Name, request.StartDate, request.NumberOfMonths,
             request.MonthlyContribution, ownerId, clock.UtcNow);
         association.SetPeriods(calendar.CreatePeriods(request.StartDate, request.NumberOfMonths));
@@ -73,7 +77,7 @@ public sealed class GetAssociationByIdHandler(IApplicationDbContext db, IAssocia
                 x.MonthlyContribution, x.Status, x.OwnerId,
                 x.Memberships.Select(m => new MembershipDto(m.Id, m.PersonId,
                     db.People.Where(p => p.Id == m.PersonId).Select(p => p.FullName).First(), m.ShareCount, m.Kind,
-                    m.Status, m.JoinedAtUtc, m.LeftAtUtc)).ToList(),
+                    m.Status, m.DisplayOrder, m.JoinedAtUtc, m.LeftAtUtc)).OrderBy(m => m.DisplayOrder).ToList(),
                 x.Periods.OrderBy(p => p.PeriodNumber).Select(p => new PeriodDto(p.Id, p.PeriodNumber, p.PeriodDate, p.DueDate, p.Status)).ToList(),
                 x.Payouts.Select(p => new PayoutDto(p.Id, p.PeriodId,
                     db.Periods.Where(period => period.Id == p.PeriodId).Select(period => period.PeriodNumber).First(),
@@ -92,6 +96,7 @@ public sealed class AddMemberValidator : AbstractValidator<AddMemberCommand>
         RuleFor(x => x.AssociationId).NotEmpty().WithErrorCode("association.not_found");
         RuleFor(x => x.PersonId).NotEmpty().WithErrorCode("person.required");
         RuleFor(x => x.Kind).IsInEnum().WithErrorCode("membership.invalid_kind");
+        RuleFor(x => x.Kind).Equal(MembershipKind.Paying).WithErrorCode("membership.advance_is_virtual");
         RuleFor(x => x.ShareCount).GreaterThan(0).Must(x => x * 2 == decimal.Truncate(x * 2)).WithErrorCode("membership.invalid_shares");
     }
 }
@@ -164,6 +169,22 @@ public sealed class PauseAssociationHandler(IApplicationDbContext db, IAssociati
         await audit.WriteAsync("AssociationPaused", nameof(Association), association.Id.ToString(), new { Status = "Active" }, new { Status = "Paused" }, cancellationToken);
     }
 }
+public sealed record CancelAssociationCommand(Guid AssociationId) : IRequest;
+public sealed class CancelAssociationHandler(IApplicationDbContext db, IAssociationAccessService access,
+    IClock clock, IAuditService audit) : IRequestHandler<CancelAssociationCommand>
+{
+    public async Task Handle(CancelAssociationCommand request, CancellationToken cancellationToken)
+    {
+        await access.EnsureAccessAsync(request.AssociationId, cancellationToken);
+        var association = await db.FindAssociationForUpdateAsync(request.AssociationId, cancellationToken)
+            ?? throw new NotFoundException("association.not_found", "Association was not found.");
+        var previous = association.Status;
+        association.Cancel(clock.UtcNow);
+        await db.SaveChangesAsync(cancellationToken);
+        await audit.WriteAsync("AssociationCancelled", nameof(Association), association.Id.ToString(),
+            new { Status = previous }, new { Status = AssociationStatus.Cancelled }, cancellationToken);
+    }
+}
 public sealed record ResumeAssociationCommand(Guid AssociationId) : IRequest;
 public sealed class ResumeAssociationHandler(IApplicationDbContext db, IAssociationAccessService access, IClock clock, IAuditService audit)
     : IRequestHandler<ResumeAssociationCommand>
@@ -204,26 +225,8 @@ public sealed class CompleteAssociationHandler(IApplicationDbContext db, IAssoci
                 ?? throw new NotFoundException("association.not_found", "Association was not found.");
             var now = clock.UtcNow;
             association.Complete(now);
-            foreach (var membership in association.Memberships.Where(x => x.Status == MembershipStatus.Replaced
-                && x.Kind == MembershipKind.Paying && x.LeftAtUtc.HasValue))
-            {
-                if (await db.Settlements.AnyAsync(x => x.MembershipId == membership.Id, innerCancellationToken)) continue;
-                var joined = DateOnly.FromDateTime(membership.JoinedAtUtc.UtcDateTime);
-                var left = DateOnly.FromDateTime(membership.LeftAtUtc!.Value.UtcDateTime);
-                var eligiblePeriodIds = association.Periods.Where(x => x.PeriodDate >= joined && x.PeriodDate <= left)
-                    .Select(x => x.Id).ToArray();
-                var required = eligiblePeriodIds.Length * association.MonthlyContribution * membership.ShareCount;
-                var allocated = await db.PaymentAllocations.AsNoTracking()
-                    .Where(x => x.AssociationId == association.Id && eligiblePeriodIds.Contains(x.PeriodId))
-                    .Join(db.Payments.AsNoTracking().Where(x => x.PersonId == membership.PersonId),
-                        allocation => allocation.PaymentId, payment => payment.Id, (allocation, _) => allocation.AllocatedAmount)
-                    .SumAsync(innerCancellationToken);
-                var credit = await db.AssociationCredits.AsNoTracking()
-                    .Where(x => x.AssociationId == association.Id && x.PersonId == membership.PersonId
-                        && x.CreatedAtUtc <= membership.LeftAtUtc.Value)
-                    .SumAsync(x => x.Amount, innerCancellationToken);
-                await db.AddEntityAsync(new Settlement(association.Id, membership.Id, required, allocated + credit, now), innerCancellationToken);
-            }
+            await AssociationSettlementGenerator.CreateForReplacedMembersAsync(db, association, now,
+                innerCancellationToken);
             await db.SaveChangesAsync(innerCancellationToken);
             return true;
         }, cancellationToken);
@@ -241,7 +244,9 @@ public sealed class AddPayoutValidator : AbstractValidator<AddPayoutCommand>
             .WithErrorCode("payout.invalid_shares");
         RuleFor(x => x.RecipientType).IsInEnum().WithErrorCode("payout.invalid_recipient_type");
         RuleFor(x => x.MembershipId).NotNull().When(x => x.RecipientType == PayoutRecipientType.Membership).WithErrorCode("payout.membership_required");
-        RuleFor(x => x.ShareCount).Equal(1).When(x => x.RecipientType == PayoutRecipientType.ReserveSlot).WithErrorCode("payout.reserve_full_share");
+        RuleFor(x => x.ShareCount).Equal(1)
+            .When(x => x.RecipientType is PayoutRecipientType.ReserveSlot or PayoutRecipientType.AdvanceSlot)
+            .WithErrorCode("payout.virtual_full_share");
     }
 }
 public sealed class AddPayoutHandler(IApplicationDbContext db, IAssociationAccessService access, IClock clock, IAuditService audit)
@@ -307,12 +312,25 @@ public sealed class CompletePayoutHandler(IApplicationDbContext db, IAssociation
     public async Task Handle(CompletePayoutCommand request, CancellationToken cancellationToken)
     {
         await access.EnsureAccessAsync(request.AssociationId, cancellationToken);
-        var association = await db.FindAssociationForUpdateAsync(request.AssociationId, cancellationToken)
-            ?? throw new NotFoundException("association.not_found", "Association was not found.");
-        association.CompletePayout(request.PayoutId, clock.Today, clock.UtcNow);
-        await db.SaveChangesAsync(cancellationToken);
+        var automaticallyCompleted = await db.ExecuteSerializableAsync(async innerCancellationToken =>
+        {
+            var association = await db.FindAssociationForUpdateAsync(request.AssociationId, innerCancellationToken)
+                ?? throw new NotFoundException("association.not_found", "Association was not found.");
+            var wasCompleted = association.Status == AssociationStatus.Completed;
+            var now = clock.UtcNow;
+            association.CompletePayout(request.PayoutId, clock.Today, now);
+            var completed = !wasCompleted && association.Status == AssociationStatus.Completed;
+            if (completed)
+                await AssociationSettlementGenerator.CreateForReplacedMembersAsync(db, association, now,
+                    innerCancellationToken);
+            await db.SaveChangesAsync(innerCancellationToken);
+            return completed;
+        }, cancellationToken);
         await audit.WriteAsync("PayoutCompleted", nameof(PayoutAssignment), request.PayoutId.ToString(), null,
             new { Status = "Completed" }, cancellationToken);
+        if (automaticallyCompleted)
+            await audit.WriteAsync("AssociationCompleted", nameof(Association), request.AssociationId.ToString(),
+                null, new { Status = "Completed", Trigger = "FinalPayout" }, cancellationToken);
     }
 }
 
@@ -371,6 +389,9 @@ public sealed class ReplaceMemberHandler(IApplicationDbContext db, IAssociationA
         var newPhones = new HashSet<string>(StringComparer.Ordinal);
         var newNames = new HashSet<string>(StringComparer.Ordinal);
         var newCodes = new HashSet<string>(StringComparer.Ordinal);
+        var ownerId = current.UserId ?? throw new ForbiddenException();
+        var accessiblePersonIds = personAccess.GetAccessiblePersonIds(ownerId,
+            current.IsInRole(AppRoles.Admin), current.IsInRole(AppRoles.Owner));
         foreach (var input in request.Replacements)
         {
             if (input.PersonId is Guid id)
@@ -381,10 +402,13 @@ public sealed class ReplaceMemberHandler(IApplicationDbContext db, IAssociationA
                 continue;
             }
             var phone = input.PhoneNumber!.Trim();
+            var normalizedPhone = Person.NormalizePhone(phone);
             var normalizedName = Person.NormalizeName(input.FullName!);
-            if (!newPhones.Add(phone) || await db.People.AnyAsync(x => x.PhoneNumber == phone, cancellationToken))
+            if (!newPhones.Add(normalizedPhone) || await db.People.AnyAsync(x => accessiblePersonIds.Contains(x.Id)
+                    && x.NormalizedPhoneNumber == normalizedPhone, cancellationToken))
                 throw new ConflictException("person.duplicate_phone", "Phone number already exists.");
-            if (!newNames.Add(normalizedName) || await db.People.AnyAsync(x => x.NormalizedFullName == normalizedName, cancellationToken))
+            if (!newNames.Add(normalizedName) || await db.People.AnyAsync(x => accessiblePersonIds.Contains(x.Id)
+                    && x.NormalizedFullName == normalizedName, cancellationToken))
                 throw new ConflictException("person.duplicate_name", "A person with the same normalized name already exists.");
             var codeValue = codes.Generate();
             while (!newCodes.Add(codeValue) || await db.People.AnyAsync(
@@ -392,7 +416,8 @@ public sealed class ReplaceMemberHandler(IApplicationDbContext db, IAssociationA
                 codeValue = codes.Generate();
             var person = new Person(input.FullName!, phone, Domain.ValueObjects.SubscriberCode.Create(codeValue), clock.UtcNow);
             await db.AddEntityAsync(person, cancellationToken);
-            await personAccess.GrantOwnerAccessAsync(current.UserId ?? throw new ForbiddenException(), person.Id, cancellationToken);
+            await personAccess.GrantOwnerAccessAsync(ownerId, person.Id,
+                person.NormalizedFullName, person.NormalizedPhoneNumber, cancellationToken);
             replacements.Add((person.Id, input.ShareCount));
         }
         var replacement = association.ReplaceMember(request.MembershipId, replacements, request.Reason, clock.UtcNow);
@@ -408,8 +433,39 @@ internal static class AssociationMappings
     public static AssociationDetailsDto ToDetails(Association x, IReadOnlyDictionary<Guid, string> names) =>
         new(x.Id, x.Name, x.StartDate, x.EndDate, x.NumberOfMonths, x.MonthlyContribution, x.Status, x.OwnerId,
             x.Memberships.Select(m => new MembershipDto(m.Id, m.PersonId, names.GetValueOrDefault(m.PersonId, string.Empty),
-                m.ShareCount, m.Kind, m.Status, m.JoinedAtUtc, m.LeftAtUtc)).ToList(),
+                m.ShareCount, m.Kind, m.Status, m.DisplayOrder, m.JoinedAtUtc, m.LeftAtUtc))
+                .OrderBy(m => m.DisplayOrder).ToList(),
             x.Periods.OrderBy(p => p.PeriodNumber).Select(p => new PeriodDto(p.Id, p.PeriodNumber, p.PeriodDate, p.DueDate, p.Status)).ToList(),
             x.Payouts.Select(p => new PayoutDto(p.Id, p.PeriodId, x.Periods.Single(period => period.Id == p.PeriodId).PeriodNumber,
                 p.RecipientType, p.MembershipId, p.BeneficiaryPersonId, p.ShareCount, p.ShareCount * x.FullSharePayoutValue, p.Status)).ToList());
+}
+
+internal static class AssociationSettlementGenerator
+{
+    public static async Task CreateForReplacedMembersAsync(IApplicationDbContext db, Association association,
+        DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        foreach (var membership in association.Memberships.Where(x => x.Status == MembershipStatus.Replaced
+                     && x.Kind == MembershipKind.Paying && x.LeftAtUtc.HasValue))
+        {
+            if (await db.Settlements.AnyAsync(x => x.MembershipId == membership.Id, cancellationToken)) continue;
+            var joined = DateOnly.FromDateTime(membership.JoinedAtUtc.UtcDateTime);
+            var left = DateOnly.FromDateTime(membership.LeftAtUtc!.Value.UtcDateTime);
+            var eligiblePeriodIds = association.Periods.Where(x => x.PeriodDate >= joined && x.PeriodDate <= left)
+                .Select(x => x.Id).ToArray();
+            var required = eligiblePeriodIds.Length * association.MonthlyContribution * membership.ShareCount;
+            var allocated = await db.PaymentAllocations.AsNoTracking()
+                .Where(x => x.AssociationId == association.Id && eligiblePeriodIds.Contains(x.PeriodId))
+                .Join(db.Payments.AsNoTracking().Where(x => x.PersonId == membership.PersonId),
+                    allocation => allocation.PaymentId, payment => payment.Id,
+                    (allocation, _) => allocation.AllocatedAmount)
+                .SumAsync(cancellationToken);
+            var credit = await db.AssociationCredits.AsNoTracking()
+                .Where(x => x.AssociationId == association.Id && x.PersonId == membership.PersonId
+                    && x.CreatedAtUtc <= membership.LeftAtUtc.Value)
+                .SumAsync(x => x.Amount, cancellationToken);
+            await db.AddEntityAsync(new Settlement(association.Id, membership.Id, required, allocated + credit, now),
+                cancellationToken);
+        }
+    }
 }
