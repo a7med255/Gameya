@@ -48,6 +48,13 @@ public sealed class UserAssociationAccess
     public DateTimeOffset GrantedAtUtc { get; set; }
 }
 
+public sealed class OwnerPersonAccess
+{
+    public string OwnerId { get; set; } = string.Empty;
+    public Guid PersonId { get; set; }
+    public DateTimeOffset GrantedAtUtc { get; set; }
+}
+
 public sealed class BackgroundJobExecution
 {
     public Guid Id { get; set; } = Guid.NewGuid();

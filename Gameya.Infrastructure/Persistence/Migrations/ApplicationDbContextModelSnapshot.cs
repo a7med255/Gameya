@@ -97,7 +97,10 @@ namespace Gameya.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("PaymentId");
+                    b.HasIndex("AssociationId");
+
+                    b.HasIndex("PaymentId", "AssociationId")
+                        .IsUnique();
 
                     b.HasIndex("PersonId", "AssociationId");
 
@@ -127,6 +130,8 @@ namespace Gameya.Infrastructure.Persistence.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AssociationId");
 
                     b.HasIndex("PeriodId");
 
@@ -292,6 +297,8 @@ namespace Gameya.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("AdjustsPaymentId");
 
+                    b.HasIndex("RecordedByUserId");
+
                     b.HasIndex("PersonId", "PaidAtUtc");
 
                     b.ToTable("Payments", (string)null);
@@ -324,9 +331,12 @@ namespace Gameya.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("PaymentId");
+                    b.HasIndex("PeriodId");
 
                     b.HasIndex("AssociationId", "PeriodId");
+
+                    b.HasIndex("PaymentId", "AssociationId", "PeriodId")
+                        .IsUnique();
 
                     b.ToTable("PaymentAllocations", (string)null);
                 });
@@ -456,6 +466,8 @@ namespace Gameya.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("AssociationId");
 
+                    b.HasIndex("OldMembershipId");
+
                     b.ToTable("Replacements", (string)null);
                 });
 
@@ -518,6 +530,8 @@ namespace Gameya.Infrastructure.Persistence.Migrations
                         .HasColumnType("decimal(18,2)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AssociationId");
 
                     b.HasIndex("MembershipId")
                         .IsUnique();
@@ -650,7 +664,27 @@ namespace Gameya.Infrastructure.Persistence.Migrations
 
                     b.HasKey("InvitationId", "AssociationId");
 
+                    b.HasIndex("AssociationId");
+
                     b.ToTable("InvitationAssociations", (string)null);
+                });
+
+            modelBuilder.Entity("Gameya.Infrastructure.Identity.OwnerPersonAccess", b =>
+                {
+                    b.Property<string>("OwnerId")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<Guid>("PersonId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("GrantedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("OwnerId", "PersonId");
+
+                    b.HasIndex("PersonId");
+
+                    b.ToTable("OwnerPersonAccess", (string)null);
                 });
 
             modelBuilder.Entity("Gameya.Infrastructure.Identity.PaymentUserInvitation", b =>
@@ -672,7 +706,7 @@ namespace Gameya.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("OwnerId")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("TokenHash")
                         .IsRequired()
@@ -680,6 +714,8 @@ namespace Gameya.Infrastructure.Persistence.Migrations
                         .HasColumnType("nvarchar(64)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("OwnerId");
 
                     b.HasIndex("TokenHash")
                         .IsUnique();
@@ -745,11 +781,13 @@ namespace Gameya.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("GrantedByOwnerId")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("nvarchar(450)");
 
                     b.HasKey("UserId", "AssociationId");
 
                     b.HasIndex("AssociationId");
+
+                    b.HasIndex("GrantedByOwnerId");
 
                     b.ToTable("UserAssociationAccess", (string)null);
                 });
@@ -887,20 +925,53 @@ namespace Gameya.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("Gameya.Domain.Entities.Association", b =>
+                {
+                    b.HasOne("Gameya.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Gameya.Domain.Entities.AssociationCredit", b =>
                 {
+                    b.HasOne("Gameya.Domain.Entities.Association", null)
+                        .WithMany()
+                        .HasForeignKey("AssociationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("Gameya.Domain.Entities.Payment", null)
                         .WithMany()
                         .HasForeignKey("PaymentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Gameya.Domain.Entities.Person", null)
+                        .WithMany()
+                        .HasForeignKey("PersonId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
             modelBuilder.Entity("Gameya.Domain.Entities.AssociationCreditApplication", b =>
                 {
+                    b.HasOne("Gameya.Domain.Entities.Association", null)
+                        .WithMany()
+                        .HasForeignKey("AssociationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("Gameya.Domain.Entities.AssociationPeriod", null)
                         .WithMany()
                         .HasForeignKey("PeriodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Gameya.Domain.Entities.Person", null)
+                        .WithMany()
+                        .HasForeignKey("PersonId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -931,18 +1002,41 @@ namespace Gameya.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Gameya.Domain.Entities.Payment", b =>
                 {
+                    b.HasOne("Gameya.Domain.Entities.Payment", null)
+                        .WithMany()
+                        .HasForeignKey("AdjustsPaymentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Gameya.Domain.Entities.Person", null)
                         .WithMany()
                         .HasForeignKey("PersonId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Gameya.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("RecordedByUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
             modelBuilder.Entity("Gameya.Domain.Entities.PaymentAllocation", b =>
                 {
+                    b.HasOne("Gameya.Domain.Entities.Association", null)
+                        .WithMany()
+                        .HasForeignKey("AssociationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("Gameya.Domain.Entities.Payment", null)
                         .WithMany("Allocations")
                         .HasForeignKey("PaymentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Gameya.Domain.Entities.AssociationPeriod", null)
+                        .WithMany()
+                        .HasForeignKey("PeriodId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -979,6 +1073,12 @@ namespace Gameya.Infrastructure.Persistence.Migrations
                         .HasForeignKey("AssociationId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Gameya.Domain.Entities.AssociationMembership", null)
+                        .WithMany()
+                        .HasForeignKey("OldMembershipId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Gameya.Domain.Entities.ReplacementShare", b =>
@@ -996,12 +1096,78 @@ namespace Gameya.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Gameya.Domain.Entities.Settlement", b =>
+                {
+                    b.HasOne("Gameya.Domain.Entities.Association", null)
+                        .WithMany()
+                        .HasForeignKey("AssociationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Gameya.Domain.Entities.AssociationMembership", null)
+                        .WithMany()
+                        .HasForeignKey("MembershipId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Gameya.Infrastructure.Identity.InvitationAssociation", b =>
                 {
+                    b.HasOne("Gameya.Domain.Entities.Association", null)
+                        .WithMany()
+                        .HasForeignKey("AssociationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("Gameya.Infrastructure.Identity.PaymentUserInvitation", null)
                         .WithMany("Associations")
                         .HasForeignKey("InvitationId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Gameya.Infrastructure.Identity.OwnerPersonAccess", b =>
+                {
+                    b.HasOne("Gameya.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Gameya.Domain.Entities.Person", null)
+                        .WithMany()
+                        .HasForeignKey("PersonId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Gameya.Infrastructure.Identity.PaymentUserInvitation", b =>
+                {
+                    b.HasOne("Gameya.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Gameya.Infrastructure.Identity.UserAssociationAccess", b =>
+                {
+                    b.HasOne("Gameya.Domain.Entities.Association", null)
+                        .WithMany()
+                        .HasForeignKey("AssociationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Gameya.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("GrantedByOwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Gameya.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

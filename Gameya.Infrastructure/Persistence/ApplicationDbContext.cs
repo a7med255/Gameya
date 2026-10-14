@@ -31,6 +31,7 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     public DbSet<PaymentUserInvitation> PaymentUserInvitations => Set<PaymentUserInvitation>();
     public DbSet<InvitationAssociation> InvitationAssociations => Set<InvitationAssociation>();
     public DbSet<UserAssociationAccess> UserAssociationAccesses => Set<UserAssociationAccess>();
+    public DbSet<OwnerPersonAccess> OwnerPersonAccesses => Set<OwnerPersonAccess>();
     public DbSet<BackgroundJobExecution> BackgroundJobExecutions => Set<BackgroundJobExecution>();
 
     IQueryable<Person> IApplicationDbContext.People => PeopleSet;

@@ -33,6 +33,7 @@ public sealed class AssociationConfiguration : IEntityTypeConfiguration<Associat
         b.Property(x => x.RowVersion).IsRowVersion();
         b.Ignore(x => x.FullSharePayoutValue); b.Ignore(x => x.DomainEvents);
         b.HasIndex(x => new { x.OwnerId, x.Status });
+        b.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.OwnerId).OnDelete(DeleteBehavior.Restrict);
         b.HasMany(x => x.Memberships).WithOne().HasForeignKey(x => x.AssociationId).OnDelete(DeleteBehavior.Restrict);
         b.HasMany(x => x.Periods).WithOne().HasForeignKey(x => x.AssociationId).OnDelete(DeleteBehavior.Restrict);
         b.HasMany(x => x.Payouts).WithOne().HasForeignKey(x => x.AssociationId).OnDelete(DeleteBehavior.Restrict);
@@ -85,6 +86,7 @@ public sealed class ReplacementConfiguration : IEntityTypeConfiguration<Replacem
     public void Configure(EntityTypeBuilder<Replacement> b)
     {
         b.ToTable("Replacements"); b.HasKey(x => x.Id); b.Property(x => x.Reason).HasMaxLength(500);
+        b.HasOne<AssociationMembership>().WithMany().HasForeignKey(x => x.OldMembershipId).OnDelete(DeleteBehavior.Restrict);
         b.HasMany(x => x.Shares).WithOne().HasForeignKey(x => x.ReplacementId).OnDelete(DeleteBehavior.Restrict);
         b.Navigation(x => x.Shares).UsePropertyAccessMode(PropertyAccessMode.Field); b.Ignore(x => x.DomainEvents);
     }
@@ -106,6 +108,8 @@ public sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         b.Property(x => x.RecordedByUserId).HasMaxLength(450).IsRequired(); b.Property(x => x.RowVersion).IsRowVersion();
         b.HasIndex(x => new { x.PersonId, x.PaidAtUtc }); b.HasIndex(x => x.AdjustsPaymentId);
         b.HasOne<Person>().WithMany().HasForeignKey(x => x.PersonId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.RecordedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Payment>().WithMany().HasForeignKey(x => x.AdjustsPaymentId).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
         b.HasMany(x => x.Allocations).WithOne().HasForeignKey(x => x.PaymentId).OnDelete(DeleteBehavior.Restrict);
         b.Navigation(x => x.Allocations).UsePropertyAccessMode(PropertyAccessMode.Field); b.Ignore(x => x.DomainEvents);
     }
@@ -115,7 +119,11 @@ public sealed class PaymentAllocationConfiguration : IEntityTypeConfiguration<Pa
     public void Configure(EntityTypeBuilder<PaymentAllocation> b)
     {
         b.ToTable("PaymentAllocations"); b.HasKey(x => x.Id); b.Property(x => x.AllocatedAmount).HasPrecision(18, 2);
-        b.HasIndex(x => new { x.AssociationId, x.PeriodId }); b.Ignore(x => x.DomainEvents);
+        b.HasIndex(x => new { x.AssociationId, x.PeriodId });
+        b.HasIndex(x => new { x.PaymentId, x.AssociationId, x.PeriodId }).IsUnique();
+        b.HasOne<Association>().WithMany().HasForeignKey(x => x.AssociationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<AssociationPeriod>().WithMany().HasForeignKey(x => x.PeriodId).OnDelete(DeleteBehavior.Restrict);
+        b.Ignore(x => x.DomainEvents);
     }
 }
 public sealed class CreditConfiguration : IEntityTypeConfiguration<AssociationCredit>
@@ -123,8 +131,11 @@ public sealed class CreditConfiguration : IEntityTypeConfiguration<AssociationCr
     public void Configure(EntityTypeBuilder<AssociationCredit> b)
     {
         b.ToTable("AssociationCredits"); b.HasKey(x => x.Id); b.Property(x => x.Amount).HasPrecision(18, 2);
-        b.HasIndex(x => new { x.PersonId, x.AssociationId }); b.HasIndex(x => x.PaymentId); b.Ignore(x => x.DomainEvents);
+        b.HasIndex(x => new { x.PersonId, x.AssociationId });
+        b.HasIndex(x => new { x.PaymentId, x.AssociationId }).IsUnique(); b.Ignore(x => x.DomainEvents);
         b.HasOne<Payment>().WithMany().HasForeignKey(x => x.PaymentId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Person>().WithMany().HasForeignKey(x => x.PersonId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Association>().WithMany().HasForeignKey(x => x.AssociationId).OnDelete(DeleteBehavior.Restrict);
     }
 }
 public sealed class CreditApplicationConfiguration : IEntityTypeConfiguration<AssociationCreditApplication>
@@ -133,6 +144,8 @@ public sealed class CreditApplicationConfiguration : IEntityTypeConfiguration<As
     {
         b.ToTable("AssociationCreditApplications"); b.HasKey(x => x.Id); b.Property(x => x.Amount).HasPrecision(18, 2);
         b.HasIndex(x => new { x.PersonId, x.AssociationId, x.PeriodId }); b.Ignore(x => x.DomainEvents);
+        b.HasOne<Person>().WithMany().HasForeignKey(x => x.PersonId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Association>().WithMany().HasForeignKey(x => x.AssociationId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<AssociationPeriod>().WithMany().HasForeignKey(x => x.PeriodId).OnDelete(DeleteBehavior.Restrict);
     }
 }
@@ -143,6 +156,8 @@ public sealed class SettlementConfiguration : IEntityTypeConfiguration<Settlemen
         b.ToTable("Settlements"); b.HasKey(x => x.Id);
         b.Property(x => x.TotalRequired).HasPrecision(18, 2); b.Property(x => x.TotalPaid).HasPrecision(18, 2); b.Property(x => x.Balance).HasPrecision(18, 2);
         b.HasIndex(x => x.MembershipId).IsUnique(); b.Ignore(x => x.DomainEvents);
+        b.HasOne<Association>().WithMany().HasForeignKey(x => x.AssociationId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<AssociationMembership>().WithMany().HasForeignKey(x => x.MembershipId).OnDelete(DeleteBehavior.Restrict);
     }
 }
 public sealed class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
@@ -157,7 +172,7 @@ public sealed class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
 
 public sealed class IdentitySupportConfiguration : IEntityTypeConfiguration<RefreshToken>,
     IEntityTypeConfiguration<PaymentUserInvitation>, IEntityTypeConfiguration<InvitationAssociation>, IEntityTypeConfiguration<UserAssociationAccess>,
-    IEntityTypeConfiguration<BackgroundJobExecution>
+    IEntityTypeConfiguration<OwnerPersonAccess>, IEntityTypeConfiguration<BackgroundJobExecution>
 {
     public void Configure(EntityTypeBuilder<RefreshToken> b)
     {
@@ -168,14 +183,25 @@ public sealed class IdentitySupportConfiguration : IEntityTypeConfiguration<Refr
     {
         b.ToTable("PaymentUserInvitations"); b.HasKey(x => x.Id); b.Property(x => x.Email).HasMaxLength(256); b.Property(x => x.TokenHash).HasMaxLength(64);
         b.HasIndex(x => x.TokenHash).IsUnique(); b.HasMany(x => x.Associations).WithOne().HasForeignKey(x => x.InvitationId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.OwnerId).OnDelete(DeleteBehavior.Restrict);
     }
     public void Configure(EntityTypeBuilder<InvitationAssociation> b)
     {
         b.ToTable("InvitationAssociations"); b.HasKey(x => new { x.InvitationId, x.AssociationId });
+        b.HasOne<Association>().WithMany().HasForeignKey(x => x.AssociationId).OnDelete(DeleteBehavior.Restrict);
     }
     public void Configure(EntityTypeBuilder<UserAssociationAccess> b)
     {
         b.ToTable("UserAssociationAccess"); b.HasKey(x => new { x.UserId, x.AssociationId }); b.HasIndex(x => x.AssociationId);
+        b.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.GrantedByOwnerId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Association>().WithMany().HasForeignKey(x => x.AssociationId).OnDelete(DeleteBehavior.Restrict);
+    }
+    public void Configure(EntityTypeBuilder<OwnerPersonAccess> b)
+    {
+        b.ToTable("OwnerPersonAccess"); b.HasKey(x => new { x.OwnerId, x.PersonId }); b.HasIndex(x => x.PersonId);
+        b.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.OwnerId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Person>().WithMany().HasForeignKey(x => x.PersonId).OnDelete(DeleteBehavior.Restrict);
     }
     public void Configure(EntityTypeBuilder<BackgroundJobExecution> b)
     {

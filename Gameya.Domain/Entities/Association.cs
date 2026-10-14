@@ -78,10 +78,17 @@ public sealed class Association : AggregateRoot
 
     public PayoutAssignment AddPayout(Guid periodId, PayoutRecipientType type, Guid? membershipId,
         decimal shareCount, DateTimeOffset now)
+        => AddPayout(periodId, type, membershipId, shareCount, DateOnly.FromDateTime(now.UtcDateTime), now);
+
+    public PayoutAssignment AddPayout(Guid periodId, PayoutRecipientType type, Guid? membershipId,
+        decimal shareCount, DateOnly today, DateTimeOffset now)
     {
         Guard.Against(Status is AssociationStatus.Completed or AssociationStatus.Cancelled,
             "association.closed", "A closed association cannot receive payout assignments.");
-        Guard.Against(_periods.All(x => x.Id != periodId), "period.not_found", "Period was not found.");
+        var period = _periods.SingleOrDefault(x => x.Id == periodId);
+        Guard.Against(period is null, "period.not_found", "Period was not found.");
+        Guard.Against(Status is AssociationStatus.Active or AssociationStatus.Paused && period!.PeriodDate <= today,
+            "payout.future_only", "Only future payout assignments can be added after the association starts.");
         if (membershipId is not null)
             Guard.Against(_memberships.All(x => x.Id != membershipId), "membership.not_found", "Membership was not found.");
         var payout = new PayoutAssignment(Id, periodId, type, membershipId, shareCount, now);
@@ -93,9 +100,11 @@ public sealed class Association : AggregateRoot
     {
         var payout = _payouts.SingleOrDefault(x => x.Id == payoutId);
         Guard.Against(payout is null, "payout.not_found", "Payout was not found.");
+        var sourcePeriod = _periods.Single(x => x.Id == payout!.PeriodId);
         var period = _periods.SingleOrDefault(x => x.Id == periodId);
         Guard.Against(period is null, "period.not_found", "Period was not found.");
-        Guard.Against(period!.PeriodDate < today, "payout.future_only", "Only future payout assignments can be changed.");
+        Guard.Against(sourcePeriod.PeriodDate <= today || period!.PeriodDate <= today,
+            "payout.future_only", "Only future payout assignments can be changed.");
         payout!.Reschedule(periodId);
         UpdatedAtUtc = now;
     }
@@ -105,7 +114,7 @@ public sealed class Association : AggregateRoot
         var payout = _payouts.SingleOrDefault(x => x.Id == payoutId);
         Guard.Against(payout is null, "payout.not_found", "Payout was not found.");
         var period = _periods.Single(x => x.Id == payout!.PeriodId);
-        Guard.Against(payout!.Status == PayoutStatus.Completed || period.PeriodDate < today,
+        Guard.Against(payout!.Status == PayoutStatus.Completed || period.PeriodDate <= today,
             "payout.historical_immutable", "A historical payout cannot be removed.");
         _payouts.Remove(payout);
         UpdatedAtUtc = now;
@@ -135,6 +144,25 @@ public sealed class Association : AggregateRoot
     {
         Guard.Against(Status != AssociationStatus.Active, "association.pause_from_active", "Only an active association can be paused.");
         Status = AssociationStatus.Paused;
+        UpdatedAtUtc = now;
+    }
+
+    public void Resume(DateTimeOffset now)
+    {
+        Guard.Against(Status != AssociationStatus.Paused, "association.resume_from_paused", "Only a paused association can resume.");
+        Status = AssociationStatus.Active;
+        UpdatedAtUtc = now;
+    }
+
+    public void CompletePayout(Guid payoutId, DateOnly today, DateTimeOffset now)
+    {
+        Guard.Against(Status is not (AssociationStatus.Active or AssociationStatus.Paused),
+            "payout.invalid_association_state", "Payouts can only complete after the association starts.");
+        var payout = _payouts.SingleOrDefault(x => x.Id == payoutId);
+        Guard.Against(payout is null, "payout.not_found", "Payout was not found.");
+        var period = _periods.Single(x => x.Id == payout!.PeriodId);
+        Guard.Against(period.PeriodDate > today, "payout.not_due", "A future payout cannot be completed.");
+        payout!.Complete(now);
         UpdatedAtUtc = now;
     }
 
@@ -186,14 +214,13 @@ public sealed class Association : AggregateRoot
 
     private void ValidateFinancialBalance()
     {
-        var payingShares = _memberships
+        var payingMembers = _memberships
             .Where(x => x.Kind == MembershipKind.Paying && x.Status == MembershipStatus.Active)
-            .Sum(x => x.ShareCount);
-        var regularPayoutShares = _payouts
-            .Where(x => x.RecipientType == PayoutRecipientType.Membership)
-            .Where(x => _memberships.Any(m => m.Id == x.MembershipId && m.Kind == MembershipKind.Paying))
-            .Sum(x => x.ShareCount);
-        Guard.Against(payingShares != regularPayoutShares, "association.financial_imbalance",
+            .ToList();
+        var isBalanced = payingMembers.All(member => _payouts
+            .Where(x => x.RecipientType == PayoutRecipientType.Membership && x.MembershipId == member.Id)
+            .Sum(x => x.ShareCount) == member.ShareCount);
+        Guard.Against(!isBalanced, "association.financial_imbalance",
             "Paying member obligations must equal regular scheduled payout value; reserve and advance entries are excluded.");
     }
 }

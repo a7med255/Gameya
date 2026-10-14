@@ -16,7 +16,9 @@ public sealed class PeopleController(ISender sender) : ControllerBase
     public async Task<IActionResult> List([FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default) =>
         Ok(await sender.Send(new GetPeopleQuery(search, page, pageSize), cancellationToken));
     [HttpGet("{id:guid}")]
+    [Authorize(Policy = AppPolicies.OwnerOrAdmin)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken) => Ok(await sender.Send(new GetPersonProfileQuery(id), cancellationToken));
     [HttpGet("{id:guid}/financial-summary")]
+    [Authorize(Policy = AppPolicies.OwnerOrAdmin)]
     public async Task<IActionResult> FinancialSummary(Guid id, CancellationToken cancellationToken) => Ok(await sender.Send(new GetPersonProfileQuery(id), cancellationToken));
 }

@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Gameya.API.Controllers;
 
-[ApiController, Route("api/associations"), Authorize(Roles = AppRoles.Staff)]
+[ApiController, Route("api/associations"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
 public sealed class AssociationsController(ISender sender) : ControllerBase
 {
     [HttpPost, Authorize(Policy = AppPolicies.OwnerOrAdmin)]
@@ -23,10 +23,16 @@ public sealed class AssociationsController(ISender sender) : ControllerBase
     [HttpPost("{id:guid}/members"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
     public async Task<IActionResult> AddMember(Guid id, AddMemberRequest request, CancellationToken cancellationToken)
     { var memberId = await sender.Send(new AddMemberCommand(id, request.PersonId, request.ShareCount, request.Kind), cancellationToken); return Created($"/api/associations/{id}/members/{memberId}", new { id = memberId }); }
+    [HttpPatch("{id:guid}/members/{memberId:guid}/shares")]
+    public async Task<IActionResult> ChangeMemberShares(Guid id, Guid memberId, ChangeMemberSharesRequest request,
+        CancellationToken cancellationToken)
+    { await sender.Send(new ChangeMemberSharesCommand(id, memberId, request.ShareCount), cancellationToken); return NoContent(); }
     [HttpPost("{id:guid}/start"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
     public async Task<IActionResult> Start(Guid id, CancellationToken cancellationToken) { await sender.Send(new StartAssociationCommand(id), cancellationToken); return NoContent(); }
     [HttpPost("{id:guid}/pause"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
     public async Task<IActionResult> Pause(Guid id, CancellationToken cancellationToken) { await sender.Send(new PauseAssociationCommand(id), cancellationToken); return NoContent(); }
+    [HttpPost("{id:guid}/resume")]
+    public async Task<IActionResult> Resume(Guid id, CancellationToken cancellationToken) { await sender.Send(new ResumeAssociationCommand(id), cancellationToken); return NoContent(); }
     [HttpPost("{id:guid}/periods/{periodId:guid}/close"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
     public async Task<IActionResult> ClosePeriod(Guid id, Guid periodId, CancellationToken cancellationToken) { await sender.Send(new ClosePeriodCommand(id, periodId), cancellationToken); return NoContent(); }
     [HttpPost("{id:guid}/complete"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
@@ -56,6 +62,7 @@ public sealed class AssociationsController(ISender sender) : ControllerBase
 }
 
 public sealed record AddMemberRequest(Guid PersonId, decimal ShareCount, MembershipKind Kind);
+public sealed record ChangeMemberSharesRequest(decimal ShareCount);
 public sealed record AddPayoutRequest(Guid PeriodId, PayoutRecipientType RecipientType, Guid? MembershipId, decimal ShareCount);
 public sealed record MovePayoutRequest(Guid PeriodId, string? Reason);
 public sealed record ReserveBeneficiaryRequest(Guid PersonId);

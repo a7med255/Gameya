@@ -53,7 +53,7 @@ public sealed class SecurityTests(GameyaApiFactory factory) : IClassFixture<Game
     }
 
     [Fact]
-    public async Task Payment_user_receives_not_found_for_an_unassigned_association()
+    public async Task Payment_user_cannot_access_association_configuration()
     {
         var email = $"payment-{Guid.NewGuid():N}@example.com";
         var allowed = NewAssociation("Allowed"); var denied = NewAssociation("Denied");
@@ -74,8 +74,84 @@ public sealed class SecurityTests(GameyaApiFactory factory) : IClassFixture<Game
         login.EnsureSuccessStatusCode();
         var token = (await login.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accessToken").GetString();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/associations/{allowed.Id}")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/associations/{denied.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/api/associations/{allowed.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/api/associations/{denied.Id}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Reusing_a_rotated_refresh_token_revokes_its_replacement()
+    {
+        var email = $"refresh-{Guid.NewGuid():N}@example.com";
+        await CreateOwnerAsync(email);
+        var client = factory.CreateClient();
+        var login = await client.PostAsJsonAsync("/api/auth/login", new { email, password = "Strong!Pass123" });
+        login.EnsureSuccessStatusCode();
+        var loginJson = await login.Content.ReadFromJsonAsync<JsonElement>();
+        var firstToken = loginJson.GetProperty("refreshToken").GetString()!;
+
+        var refresh = await client.PostAsJsonAsync("/api/auth/refresh", new { refreshToken = firstToken });
+        refresh.EnsureSuccessStatusCode();
+        var secondToken = (await refresh.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("refreshToken").GetString()!;
+
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await client.PostAsJsonAsync("/api/auth/refresh", new { refreshToken = firstToken })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await client.PostAsJsonAsync("/api/auth/refresh", new { refreshToken = secondToken })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Owner_people_are_tenant_scoped_and_directly_created_people_remain_accessible()
+    {
+        var firstEmail = $"owner-scope-a-{Guid.NewGuid():N}@example.com";
+        var secondEmail = $"owner-scope-b-{Guid.NewGuid():N}@example.com";
+        var firstOwnerId = await CreateOwnerAsync(firstEmail);
+        var secondOwnerId = await CreateOwnerAsync(secondEmail);
+        var firstPerson = new Person("Scoped Person A", $"+204{Random.Shared.Next(10000000, 99999999)}",
+            SubscriberCode.Create("SCOP2345"), DateTimeOffset.UtcNow);
+        var secondPerson = new Person("Scoped Person B", $"+205{Random.Shared.Next(10000000, 99999999)}",
+            SubscriberCode.Create("SCOP6789"), DateTimeOffset.UtcNow);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            db.PeopleSet.AddRange(firstPerson, secondPerson);
+            db.OwnerPersonAccesses.AddRange(
+                new OwnerPersonAccess { OwnerId = firstOwnerId, PersonId = firstPerson.Id, GrantedAtUtc = DateTimeOffset.UtcNow },
+                new OwnerPersonAccess { OwnerId = secondOwnerId, PersonId = secondPerson.Id, GrantedAtUtc = DateTimeOffset.UtcNow });
+            await db.SaveChangesAsync();
+        }
+        var client = await LoginOwnerAsync(firstEmail);
+
+        var people = await client.GetFromJsonAsync<JsonElement>("/api/people?pageSize=100");
+        var ids = people.GetProperty("items").EnumerateArray().Select(x => x.GetProperty("id").GetGuid()).ToArray();
+        Assert.Contains(firstPerson.Id, ids);
+        Assert.DoesNotContain(secondPerson.Id, ids);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/people/{secondPerson.Id}")).StatusCode);
+
+        var createdResponse = await client.PostAsJsonAsync("/api/people", new
+        {
+            fullName = $"New Scoped {Guid.NewGuid():N}",
+            phoneNumber = $"+206{Random.Shared.Next(10000000, 99999999)}"
+        });
+        createdResponse.EnsureSuccessStatusCode();
+        var createdId = (await createdResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/people/{createdId}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Validation_errors_support_arabic()
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/register")
+        {
+            Content = JsonContent.Create(new { name = "", email = "not-an-email", password = "x" })
+        };
+        request.Headers.AcceptLanguage.ParseAdd("ar-EG");
+
+        var response = await factory.CreateClient().SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("validation.failed", json.GetProperty("code").GetString());
+        Assert.Contains("البيانات", json.GetProperty("detail").GetString(), StringComparison.Ordinal);
     }
 
     private static Association NewAssociation(string name)
@@ -83,5 +159,29 @@ public sealed class SecurityTests(GameyaApiFactory factory) : IClassFixture<Game
         var association = new Association(name, new DateOnly(2026, 1, 1), 1, 1_000m, "owner", DateTimeOffset.UtcNow);
         association.SetPeriods([(new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 10))]);
         return association;
+    }
+
+    private async Task<string> CreateOwnerAsync(string email)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = new ApplicationUser
+        {
+            UserName = email, Email = email, EmailConfirmed = true,
+            DisplayName = "Test Owner", CreatedAtUtc = DateTimeOffset.UtcNow
+        };
+        Assert.True((await users.CreateAsync(user, "Strong!Pass123")).Succeeded);
+        Assert.True((await users.AddToRoleAsync(user, AppRoles.Owner)).Succeeded);
+        return user.Id;
+    }
+
+    private async Task<HttpClient> LoginOwnerAsync(string email)
+    {
+        var client = factory.CreateClient();
+        var login = await client.PostAsJsonAsync("/api/auth/login", new { email, password = "Strong!Pass123" });
+        login.EnsureSuccessStatusCode();
+        var token = (await login.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accessToken").GetString();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return client;
     }
 }

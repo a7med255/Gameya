@@ -47,7 +47,11 @@ public static class DependencyInjection
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
         services.Configure<AssociationCalendarOptions>(configuration.GetSection(AssociationCalendarOptions.SectionName));
         var jwt = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? throw new InvalidOperationException("JWT configuration is required.");
+        if (string.IsNullOrWhiteSpace(jwt.Issuer) || string.IsNullOrWhiteSpace(jwt.Audience))
+            throw new InvalidOperationException("JWT issuer and audience are required.");
         if (Encoding.UTF8.GetByteCount(jwt.SigningKey) < 32) throw new InvalidOperationException("JWT signing key must be at least 32 bytes.");
+        if (jwt.AccessTokenMinutes <= 0 || jwt.RefreshTokenDays <= 0)
+            throw new InvalidOperationException("JWT token lifetimes must be positive.");
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
         {
             options.MapInboundClaims = false;
@@ -70,6 +74,7 @@ public static class DependencyInjection
         services.AddScoped<ICurrentUser, CurrentUser>(); services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<ISubscriberCodeGenerator, SubscriberCodeGenerator>(); services.AddSingleton<IAssociationCalendar, AssociationCalendar>();
         services.AddScoped<IAssociationAccessService, AssociationAccessService>(); services.AddScoped<IIdentityService, IdentityService>();
+        services.AddScoped<IPersonAccessService, PersonAccessService>();
         services.AddScoped<IAuditService, AuditService>(); services.AddScoped<IEmailService, SmtpEmailService>();
         services.AddScoped<IReportGenerator, MonthlyReportGenerator>(); services.AddScoped<IReportDeliveryService, ReportDeliveryService>();
         services.AddScoped<IIdempotentReportJob, IdempotentReportJob>();

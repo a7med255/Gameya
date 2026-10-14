@@ -15,10 +15,11 @@ namespace Gameya.Infrastructure.Reports;
 
 public sealed class MonthlyReportGenerator(ApplicationDbContext db) : IReportGenerator
 {
-    public async Task<GeneratedReportDto> GenerateMonthlyAsync(string ownerId, int year, int month, CancellationToken cancellationToken)
+    public async Task<GeneratedReportDto> GenerateMonthlyAsync(string userId, bool includeAllOwners, int year, int month,
+        CancellationToken cancellationToken)
     {
         if (month is < 1 or > 12 || year is < 2000 or > 2200) throw new ConflictException("report.invalid_period", "Invalid report period.");
-        var associations = await db.AssociationsSet.AsNoTracking().Where(x => x.OwnerId == ownerId)
+        var associations = await db.AssociationsSet.AsNoTracking().Where(x => includeAllOwners || x.OwnerId == userId)
             .Select(x => new { x.Id, x.Name, x.Status, x.MonthlyContribution }).ToListAsync(cancellationToken);
         var ids = associations.Select(x => x.Id).ToArray();
         var paid = await db.PaymentAllocationsSet.AsNoTracking().Where(x => ids.Contains(x.AssociationId))
@@ -54,11 +55,12 @@ public sealed class MonthlyReportGenerator(ApplicationDbContext db) : IReportGen
 public sealed class ReportDeliveryService(IReportGenerator reports, IEmailService email,
     UserManager<ApplicationUser> users) : IReportDeliveryService
 {
-    public async Task SendMonthlyAsync(string ownerId, int year, int month, CancellationToken cancellationToken)
+    public async Task SendMonthlyAsync(string userId, bool includeAllOwners, int year, int month,
+        CancellationToken cancellationToken)
     {
-        var owner = await users.FindByIdAsync(ownerId) ?? throw new NotFoundException("user.not_found", "User was not found.");
-        var report = await reports.GenerateMonthlyAsync(ownerId, year, month, cancellationToken);
-        await email.SendAsync(owner.Email!, $"Gameya report {year:D4}-{month:D2}", "<p>Your monthly Gameya report is attached.</p>",
+        var recipient = await users.FindByIdAsync(userId) ?? throw new NotFoundException("user.not_found", "User was not found.");
+        var report = await reports.GenerateMonthlyAsync(userId, includeAllOwners, year, month, cancellationToken);
+        await email.SendAsync(recipient.Email!, $"Gameya report {year:D4}-{month:D2}", "<p>Your monthly Gameya report is attached.</p>",
             report.Content, report.FileName, cancellationToken);
     }
 }

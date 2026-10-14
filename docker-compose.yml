@@ -25,6 +25,7 @@ services:
       Jwt__SigningKey: ${GAMEYA_JWT_KEY:?Set GAMEYA_JWT_KEY}
       Database__ApplyMigrationsOnStartup: "true"
       Cors__AllowedOrigins__0: http://localhost:4200
+      Email__PublicAppBaseUrl: http://localhost:4200
     ports:
       - "8080:8080"
 

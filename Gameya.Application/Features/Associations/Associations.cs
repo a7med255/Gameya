@@ -87,14 +87,22 @@ public sealed class GetAssociationByIdHandler(IApplicationDbContext db, IAssocia
 public sealed record AddMemberCommand(Guid AssociationId, Guid PersonId, decimal ShareCount, MembershipKind Kind) : IRequest<Guid>;
 public sealed class AddMemberValidator : AbstractValidator<AddMemberCommand>
 {
-    public AddMemberValidator() { RuleFor(x => x.ShareCount).GreaterThan(0).Must(x => x * 2 == decimal.Truncate(x * 2)).WithErrorCode("membership.invalid_shares"); }
+    public AddMemberValidator()
+    {
+        RuleFor(x => x.AssociationId).NotEmpty().WithErrorCode("association.not_found");
+        RuleFor(x => x.PersonId).NotEmpty().WithErrorCode("person.required");
+        RuleFor(x => x.Kind).IsInEnum().WithErrorCode("membership.invalid_kind");
+        RuleFor(x => x.ShareCount).GreaterThan(0).Must(x => x * 2 == decimal.Truncate(x * 2)).WithErrorCode("membership.invalid_shares");
+    }
 }
-public sealed class AddMemberHandler(IApplicationDbContext db, IAssociationAccessService access, IClock clock, IAuditService audit)
+public sealed class AddMemberHandler(IApplicationDbContext db, IAssociationAccessService access,
+    IPersonAccessService personAccess, IClock clock, IAuditService audit)
     : IRequestHandler<AddMemberCommand, Guid>
 {
     public async Task<Guid> Handle(AddMemberCommand request, CancellationToken cancellationToken)
     {
         await access.EnsureAccessAsync(request.AssociationId, cancellationToken);
+        await personAccess.EnsureAccessAsync(request.PersonId, cancellationToken);
         if (!await db.People.AnyAsync(x => x.Id == request.PersonId && x.IsActive, cancellationToken))
             throw new NotFoundException("person.not_found", "Person was not found.");
         var association = await db.FindAssociationForUpdateAsync(request.AssociationId, cancellationToken)
@@ -104,6 +112,29 @@ public sealed class AddMemberHandler(IApplicationDbContext db, IAssociationAcces
         await audit.WriteAsync("MembershipAdded", nameof(AssociationMembership), member.Id.ToString(), null,
             new { request.AssociationId, request.PersonId, request.ShareCount, request.Kind }, cancellationToken);
         return member.Id;
+    }
+}
+
+public sealed record ChangeMemberSharesCommand(Guid AssociationId, Guid MembershipId, decimal ShareCount) : IRequest;
+public sealed class ChangeMemberSharesValidator : AbstractValidator<ChangeMemberSharesCommand>
+{
+    public ChangeMemberSharesValidator() => RuleFor(x => x.ShareCount).GreaterThan(0)
+        .Must(x => x * 2 == decimal.Truncate(x * 2)).WithErrorCode("membership.invalid_shares");
+}
+public sealed class ChangeMemberSharesHandler(IApplicationDbContext db, IAssociationAccessService access,
+    IClock clock, IAuditService audit) : IRequestHandler<ChangeMemberSharesCommand>
+{
+    public async Task Handle(ChangeMemberSharesCommand request, CancellationToken cancellationToken)
+    {
+        await access.EnsureAccessAsync(request.AssociationId, cancellationToken);
+        var association = await db.FindAssociationForUpdateAsync(request.AssociationId, cancellationToken)
+            ?? throw new NotFoundException("association.not_found", "Association was not found.");
+        var oldShares = association.Memberships.SingleOrDefault(x => x.Id == request.MembershipId)?.ShareCount
+            ?? throw new NotFoundException("membership.not_found", "Membership was not found.");
+        association.ChangeMemberShares(request.MembershipId, request.ShareCount, clock.UtcNow);
+        await db.SaveChangesAsync(cancellationToken);
+        await audit.WriteAsync("MembershipSharesChanged", nameof(AssociationMembership), request.MembershipId.ToString(),
+            new { ShareCount = oldShares }, new { request.ShareCount }, cancellationToken);
     }
 }
 
@@ -131,6 +162,20 @@ public sealed class PauseAssociationHandler(IApplicationDbContext db, IAssociati
             ?? throw new NotFoundException("association.not_found", "Association was not found.");
         association.Pause(clock.UtcNow); await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("AssociationPaused", nameof(Association), association.Id.ToString(), new { Status = "Active" }, new { Status = "Paused" }, cancellationToken);
+    }
+}
+public sealed record ResumeAssociationCommand(Guid AssociationId) : IRequest;
+public sealed class ResumeAssociationHandler(IApplicationDbContext db, IAssociationAccessService access, IClock clock, IAuditService audit)
+    : IRequestHandler<ResumeAssociationCommand>
+{
+    public async Task Handle(ResumeAssociationCommand request, CancellationToken cancellationToken)
+    {
+        await access.EnsureAccessAsync(request.AssociationId, cancellationToken);
+        var association = await db.FindAssociationForUpdateAsync(request.AssociationId, cancellationToken)
+            ?? throw new NotFoundException("association.not_found", "Association was not found.");
+        association.Resume(clock.UtcNow); await db.SaveChangesAsync(cancellationToken);
+        await audit.WriteAsync("AssociationResumed", nameof(Association), association.Id.ToString(),
+            new { Status = "Paused" }, new { Status = "Active" }, cancellationToken);
     }
 }
 public sealed record ClosePeriodCommand(Guid AssociationId, Guid PeriodId) : IRequest;
@@ -192,7 +237,9 @@ public sealed class AddPayoutValidator : AbstractValidator<AddPayoutCommand>
 {
     public AddPayoutValidator()
     {
-        RuleFor(x => x.ShareCount).GreaterThan(0).WithErrorCode("payout.invalid_shares");
+        RuleFor(x => x.ShareCount).GreaterThan(0).Must(x => x * 2 == decimal.Truncate(x * 2))
+            .WithErrorCode("payout.invalid_shares");
+        RuleFor(x => x.RecipientType).IsInEnum().WithErrorCode("payout.invalid_recipient_type");
         RuleFor(x => x.MembershipId).NotNull().When(x => x.RecipientType == PayoutRecipientType.Membership).WithErrorCode("payout.membership_required");
         RuleFor(x => x.ShareCount).Equal(1).When(x => x.RecipientType == PayoutRecipientType.ReserveSlot).WithErrorCode("payout.reserve_full_share");
     }
@@ -205,13 +252,18 @@ public sealed class AddPayoutHandler(IApplicationDbContext db, IAssociationAcces
         await access.EnsureAccessAsync(request.AssociationId, cancellationToken);
         var association = await db.FindAssociationForUpdateAsync(request.AssociationId, cancellationToken)
             ?? throw new NotFoundException("association.not_found", "Association was not found.");
-        var payout = association.AddPayout(request.PeriodId, request.RecipientType, request.MembershipId, request.ShareCount, clock.UtcNow);
+        var payout = association.AddPayout(request.PeriodId, request.RecipientType, request.MembershipId,
+            request.ShareCount, clock.Today, clock.UtcNow);
         await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("PayoutScheduled", nameof(PayoutAssignment), payout.Id.ToString(), null, request, cancellationToken);
         return payout.Id;
     }
 }
 public sealed record MovePayoutCommand(Guid AssociationId, Guid PayoutId, Guid PeriodId, string? Reason) : IRequest;
+public sealed class MovePayoutValidator : AbstractValidator<MovePayoutCommand>
+{
+    public MovePayoutValidator() => RuleFor(x => x.Reason).MaximumLength(500).WithErrorCode("payout.reason_too_long");
+}
 public sealed class MovePayoutHandler(IApplicationDbContext db, IAssociationAccessService access, IClock clock, IAuditService audit)
     : IRequestHandler<MovePayoutCommand>
 {
@@ -229,6 +281,10 @@ public sealed class MovePayoutHandler(IApplicationDbContext db, IAssociationAcce
 }
 
 public sealed record RemovePayoutCommand(Guid AssociationId, Guid PayoutId, string? Reason) : IRequest;
+public sealed class RemovePayoutValidator : AbstractValidator<RemovePayoutCommand>
+{
+    public RemovePayoutValidator() => RuleFor(x => x.Reason).MaximumLength(500).WithErrorCode("payout.reason_too_long");
+}
 public sealed class RemovePayoutHandler(IApplicationDbContext db, IAssociationAccessService access, IClock clock, IAuditService audit)
     : IRequestHandler<RemovePayoutCommand>
 {
@@ -253,10 +309,9 @@ public sealed class CompletePayoutHandler(IApplicationDbContext db, IAssociation
         await access.EnsureAccessAsync(request.AssociationId, cancellationToken);
         var association = await db.FindAssociationForUpdateAsync(request.AssociationId, cancellationToken)
             ?? throw new NotFoundException("association.not_found", "Association was not found.");
-        var payout = association.Payouts.SingleOrDefault(x => x.Id == request.PayoutId)
-            ?? throw new NotFoundException("payout.not_found", "Payout was not found.");
-        payout.Complete(clock.UtcNow); await db.SaveChangesAsync(cancellationToken);
-        await audit.WriteAsync("PayoutCompleted", nameof(PayoutAssignment), payout.Id.ToString(), null,
+        association.CompletePayout(request.PayoutId, clock.Today, clock.UtcNow);
+        await db.SaveChangesAsync(cancellationToken);
+        await audit.WriteAsync("PayoutCompleted", nameof(PayoutAssignment), request.PayoutId.ToString(), null,
             new { Status = "Completed" }, cancellationToken);
     }
 }
@@ -287,16 +342,25 @@ public sealed class ReplaceMemberValidator : AbstractValidator<ReplaceMemberComm
     public ReplaceMemberValidator()
     {
         RuleFor(x => x.Replacements).NotEmpty().WithErrorCode("replacement.required");
+        RuleFor(x => x.Replacements).Must(x => x is not null && x.Where(y => y.PersonId.HasValue)
+                .GroupBy(y => y.PersonId).All(group => group.Count() == 1))
+            .WithErrorCode("replacement.duplicate_person");
+        RuleFor(x => x.Reason).MaximumLength(500).WithErrorCode("replacement.reason_too_long");
         RuleForEach(x => x.Replacements).ChildRules(x =>
         {
             x.RuleFor(y => y.ShareCount).GreaterThan(0).WithErrorCode("membership.invalid_shares");
-            x.RuleFor(y => y.FullName).NotEmpty().When(y => y.PersonId is null).WithErrorCode("person.name_required");
-            x.RuleFor(y => y.PhoneNumber).NotEmpty().When(y => y.PersonId is null).WithErrorCode("person.phone_required");
+            x.RuleFor(y => y.ShareCount).Must(value => value * 2 == decimal.Truncate(value * 2))
+                .WithErrorCode("membership.invalid_shares");
+            x.RuleFor(y => y.FullName).NotEmpty().MaximumLength(200).When(y => y.PersonId is null)
+                .WithErrorCode("person.name_required");
+            x.RuleFor(y => y.PhoneNumber).NotEmpty().MaximumLength(30).Matches("^[0-9+ ]+$")
+                .When(y => y.PersonId is null).WithErrorCode("person.invalid_phone");
         });
     }
 }
 public sealed class ReplaceMemberHandler(IApplicationDbContext db, IAssociationAccessService access,
-    ISubscriberCodeGenerator codes, IClock clock, IAuditService audit) : IRequestHandler<ReplaceMemberCommand, Guid>
+    IPersonAccessService personAccess, ICurrentUser current, ISubscriberCodeGenerator codes,
+    IClock clock, IAuditService audit) : IRequestHandler<ReplaceMemberCommand, Guid>
 {
     public async Task<Guid> Handle(ReplaceMemberCommand request, CancellationToken cancellationToken)
     {
@@ -304,20 +368,31 @@ public sealed class ReplaceMemberHandler(IApplicationDbContext db, IAssociationA
         var association = await db.FindAssociationForUpdateAsync(request.AssociationId, cancellationToken)
             ?? throw new NotFoundException("association.not_found", "Association was not found.");
         var replacements = new List<(Guid PersonId, decimal ShareCount)>();
+        var newPhones = new HashSet<string>(StringComparer.Ordinal);
+        var newNames = new HashSet<string>(StringComparer.Ordinal);
+        var newCodes = new HashSet<string>(StringComparer.Ordinal);
         foreach (var input in request.Replacements)
         {
             if (input.PersonId is Guid id)
             {
+                await personAccess.EnsureAccessAsync(id, cancellationToken);
                 if (!await db.People.AnyAsync(x => x.Id == id && x.IsActive, cancellationToken)) throw new NotFoundException("person.not_found", "Person was not found.");
                 replacements.Add((id, input.ShareCount));
                 continue;
             }
             var phone = input.PhoneNumber!.Trim();
-            if (await db.People.AnyAsync(x => x.PhoneNumber == phone, cancellationToken)) throw new ConflictException("person.duplicate_phone", "Phone number already exists.");
+            var normalizedName = Person.NormalizeName(input.FullName!);
+            if (!newPhones.Add(phone) || await db.People.AnyAsync(x => x.PhoneNumber == phone, cancellationToken))
+                throw new ConflictException("person.duplicate_phone", "Phone number already exists.");
+            if (!newNames.Add(normalizedName) || await db.People.AnyAsync(x => x.NormalizedFullName == normalizedName, cancellationToken))
+                throw new ConflictException("person.duplicate_name", "A person with the same normalized name already exists.");
             var codeValue = codes.Generate();
-            while (await db.People.AnyAsync(x => x.SubscriberCode == Domain.ValueObjects.SubscriberCode.Create(codeValue), cancellationToken)) codeValue = codes.Generate();
+            while (!newCodes.Add(codeValue) || await db.People.AnyAsync(
+                       x => x.SubscriberCode == Domain.ValueObjects.SubscriberCode.Create(codeValue), cancellationToken))
+                codeValue = codes.Generate();
             var person = new Person(input.FullName!, phone, Domain.ValueObjects.SubscriberCode.Create(codeValue), clock.UtcNow);
             await db.AddEntityAsync(person, cancellationToken);
+            await personAccess.GrantOwnerAccessAsync(current.UserId ?? throw new ForbiddenException(), person.Id, cancellationToken);
             replacements.Add((person.Id, input.ShareCount));
         }
         var replacement = association.ReplaceMember(request.MembershipId, replacements, request.Reason, clock.UtcNow);

@@ -63,6 +63,19 @@ public sealed class AssociationTests
     }
 
     [Fact]
+    public void Start_requires_each_paying_members_payout_positions_to_match_their_shares()
+    {
+        var association = NewAssociation();
+        var first = association.AddMember(Guid.NewGuid(), 1m, MembershipKind.Paying, Now);
+        association.AddMember(Guid.NewGuid(), 1m, MembershipKind.Paying, Now);
+        association.AddPayout(association.Periods.First().Id, PayoutRecipientType.Membership, first.Id, 2m, Now);
+
+        var error = Assert.Throws<DomainException>(() => association.Start(Now));
+
+        Assert.Equal("association.financial_imbalance", error.Code);
+    }
+
+    [Fact]
     public void Normal_members_cannot_join_after_start()
     {
         var association = StartedAssociation(2m);
@@ -103,6 +116,30 @@ public sealed class AssociationTests
         var error = Assert.Throws<DomainException>(() =>
             association.MoveFuturePayout(payout.Id, association.Periods.Last().Id, new DateOnly(2025, 12, 1), Now.AddDays(2)));
         Assert.Equal("payout.historical_immutable", error.Code);
+    }
+
+    [Fact]
+    public void Historical_scheduled_payout_cannot_be_moved_into_a_future_period()
+    {
+        var association = NewAssociation();
+        var member = association.AddMember(Guid.NewGuid(), 1m, MembershipKind.Paying, Now);
+        var payout = association.AddPayout(association.Periods.First().Id, PayoutRecipientType.Membership, member.Id, 1m, Now);
+
+        var error = Assert.Throws<DomainException>(() => association.MoveFuturePayout(payout.Id,
+            association.Periods.Last().Id, association.Periods.First().PeriodDate, Now.AddDays(1)));
+
+        Assert.Equal("payout.future_only", error.Code);
+    }
+
+    [Fact]
+    public void Paused_association_can_resume()
+    {
+        var association = StartedAssociation(1m);
+        association.Pause(Now.AddDays(1));
+
+        association.Resume(Now.AddDays(2));
+
+        Assert.Equal(AssociationStatus.Active, association.Status);
     }
 
     [Fact]

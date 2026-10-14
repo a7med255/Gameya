@@ -18,7 +18,8 @@ public sealed class CreatePersonValidator : AbstractValidator<CreatePersonComman
         RuleFor(x => x.PhoneNumber).NotEmpty().MaximumLength(30).Matches("^[0-9+ ]+$").WithErrorCode("person.invalid_phone");
     }
 }
-public sealed class CreatePersonHandler(IApplicationDbContext db, ISubscriberCodeGenerator codes, IClock clock, IAuditService audit)
+public sealed class CreatePersonHandler(IApplicationDbContext db, ISubscriberCodeGenerator codes, IClock clock,
+    ICurrentUser current, IPersonAccessService personAccess, IAuditService audit)
     : IRequestHandler<CreatePersonCommand, PersonDto>
 {
     public async Task<PersonDto> Handle(CreatePersonCommand request, CancellationToken cancellationToken)
@@ -37,6 +38,7 @@ public sealed class CreatePersonHandler(IApplicationDbContext db, ISubscriberCod
 
         var person = new Person(request.FullName, phone, code, clock.UtcNow);
         await db.AddEntityAsync(person, cancellationToken);
+        await personAccess.GrantOwnerAccessAsync(current.UserId ?? throw new ForbiddenException(), person.Id, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("PersonCreated", nameof(Person), person.Id.ToString(), null,
             new { person.FullName, person.PhoneNumber, SubscriberCode = person.SubscriberCode.Value }, cancellationToken);
@@ -45,16 +47,16 @@ public sealed class CreatePersonHandler(IApplicationDbContext db, ISubscriberCod
 }
 
 public sealed record GetPeopleQuery(string? Search, int Page = 1, int PageSize = 20) : IRequest<PagedResult<PersonDto>>;
-public sealed class GetPeopleHandler(IApplicationDbContext db, ICurrentUser current, IAssociationAccessService access)
+public sealed class GetPeopleHandler(IApplicationDbContext db, ICurrentUser current, IPersonAccessService personAccess)
     : IRequestHandler<GetPeopleQuery, PagedResult<PersonDto>>
 {
     public async Task<PagedResult<PersonDto>> Handle(GetPeopleQuery request, CancellationToken cancellationToken)
     {
         var query = db.People.AsNoTracking();
-        if (current.IsInRole(AppRoles.PaymentUser))
+        if (!current.IsInRole(AppRoles.Admin))
         {
-            var ids = access.GetAccessibleAssociationIds(current.UserId!, false, false);
-            var personIds = db.Memberships.Where(x => ids.Contains(x.AssociationId)).Select(x => x.PersonId).Distinct();
+            var personIds = personAccess.GetAccessiblePersonIds(current.UserId ?? string.Empty, false,
+                current.IsInRole(AppRoles.Owner));
             query = query.Where(x => personIds.Contains(x.Id));
         }
         if (!string.IsNullOrWhiteSpace(request.Search))
@@ -77,19 +79,21 @@ public sealed class GetPeopleHandler(IApplicationDbContext db, ICurrentUser curr
 }
 
 public sealed record GetPersonProfileQuery(Guid PersonId, bool ParticipantView = false) : IRequest<PersonProfileDto>;
-public sealed class GetPersonProfileHandler(IApplicationDbContext db, ICurrentUser current, IAssociationAccessService access)
+public sealed class GetPersonProfileHandler(IApplicationDbContext db, ICurrentUser current,
+    IAssociationAccessService access, IPersonAccessService personAccess)
     : IRequestHandler<GetPersonProfileQuery, PersonProfileDto>
 {
     public async Task<PersonProfileDto> Handle(GetPersonProfileQuery request, CancellationToken cancellationToken)
     {
         if (request.ParticipantView && current.PersonId != request.PersonId) throw new NotFoundException("person.not_found", "Person was not found.");
-        var person = await db.People.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.PersonId, cancellationToken)
-            ?? throw new NotFoundException("person.not_found", "Person was not found.");
+        if (!request.ParticipantView) await personAccess.EnsureAccessAsync(request.PersonId, cancellationToken);
         var accessible = access.GetAccessibleAssociationIds(current.UserId ?? string.Empty,
             current.IsInRole(AppRoles.Admin), current.IsInRole(AppRoles.Owner));
-        var membershipsQuery = db.Memberships.AsNoTracking().Where(x => x.PersonId == person.Id);
+        var membershipsQuery = db.Memberships.AsNoTracking().Where(x => x.PersonId == request.PersonId);
         if (!request.ParticipantView && !current.IsInRole(AppRoles.Admin)) membershipsQuery = membershipsQuery.Where(x => accessible.Contains(x.AssociationId));
         var memberships = await membershipsQuery.Join(db.Associations.AsNoTracking(), m => m.AssociationId, a => a.Id, (m, a) => new { m, a }).ToListAsync(cancellationToken);
+        var person = await db.People.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.PersonId, cancellationToken)
+            ?? throw new NotFoundException("person.not_found", "Person was not found.");
         var associationIds = memberships.Select(x => x.a.Id).ToArray();
         var membershipIds = memberships.Select(x => x.m.Id).ToArray();
         var payoutEntities = await db.Payouts.AsNoTracking().Where(x => associationIds.Contains(x.AssociationId)
@@ -117,19 +121,63 @@ public sealed class GetPersonProfileHandler(IApplicationDbContext db, ICurrentUs
             return new PaymentDto(x.Id, x.PersonId, allocations.Sum(a => a.Amount) + credits.Sum(c => c.Amount),
                 x.Method, x.PaidAtUtc, x.EntryType, allocations, credits);
         }).ToList();
-        var paidByAssociation = paymentDtos.SelectMany(x => x.Allocations.Select(a => (a.AssociationId, a.Amount))
-                .Concat(x.Credits.Select(c => (c.AssociationId, c.Amount))))
-            .GroupBy(x => x.AssociationId).ToDictionary(x => x.Key, x => x.Sum(a => a.Amount));
+        var periods = await db.Periods.AsNoTracking().Where(x => associationIds.Contains(x.AssociationId))
+            .ToListAsync(cancellationToken);
+        var creditApplications = await db.AssociationCreditApplications.AsNoTracking()
+            .Where(x => x.PersonId == person.Id && associationIds.Contains(x.AssociationId))
+            .ToListAsync(cancellationToken);
+        var requirements = new Dictionary<(Guid MembershipId, Guid PeriodId), decimal>();
+        foreach (var item in memberships.Where(x => x.m.Kind == Domain.Enums.MembershipKind.Paying))
+        {
+            var joined = DateOnly.FromDateTime(item.m.JoinedAtUtc.UtcDateTime);
+            var left = item.m.LeftAtUtc.HasValue ? DateOnly.FromDateTime(item.m.LeftAtUtc.Value.UtcDateTime) : (DateOnly?)null;
+            foreach (var period in periods.Where(x => x.AssociationId == item.a.Id && x.PeriodDate >= joined
+                         && (!left.HasValue || x.PeriodDate <= left.Value)))
+                requirements[(item.m.Id, period.Id)] = item.a.MonthlyContribution * item.m.ShareCount;
+        }
+        var paidByMembershipPeriod = requirements.Keys.ToDictionary(x => x, _ => 0m);
+        foreach (var period in periods)
+        {
+            var entries = memberships.Where(x => x.a.Id == period.AssociationId)
+                .Select(x => (MembershipId: x.m.Id, Required: requirements.GetValueOrDefault((x.m.Id, period.Id))))
+                .Where(x => x.Required > 0).ToList();
+            var totalRequired = entries.Sum(x => x.Required);
+            if (totalRequired == 0) continue;
+            var paidForPeriod = paymentDtos.SelectMany(x => x.Allocations)
+                    .Where(x => x.AssociationId == period.AssociationId && x.PeriodId == period.Id).Sum(x => x.Amount)
+                + creditApplications.Where(x => x.AssociationId == period.AssociationId && x.PeriodId == period.Id).Sum(x => x.Amount);
+            var distributable = Math.Clamp(paidForPeriod, 0, totalRequired);
+            foreach (var entry in entries)
+                paidByMembershipPeriod[(entry.MembershipId, period.Id)] = distributable * entry.Required / totalRequired;
+        }
+        foreach (var associationId in associationIds.Distinct())
+        {
+            var availableCredit = creditRows.Where(x => x.AssociationId == associationId).Sum(x => x.Amount)
+                - creditApplications.Where(x => x.AssociationId == associationId).Sum(x => x.Amount);
+            foreach (var period in periods.Where(x => x.AssociationId == associationId).OrderBy(x => x.DueDate))
+            {
+                foreach (var item in memberships.Where(x => x.a.Id == associationId).OrderBy(x => x.m.JoinedAtUtc))
+                {
+                    var key = (item.m.Id, period.Id);
+                    var remaining = requirements.GetValueOrDefault(key) - paidByMembershipPeriod.GetValueOrDefault(key);
+                    var applied = Math.Min(Math.Max(0, remaining), Math.Max(0, availableCredit));
+                    paidByMembershipPeriod[key] = paidByMembershipPeriod.GetValueOrDefault(key) + applied;
+                    availableCredit -= applied;
+                    if (availableCredit <= 0) break;
+                }
+                if (availableCredit <= 0) break;
+            }
+        }
         var membershipDtos = memberships.Select(x =>
         {
-            var required = x.m.Kind == Domain.Enums.MembershipKind.Paying ? x.a.FullSharePayoutValue * x.m.ShareCount : 0;
-            var paid = paidByAssociation.GetValueOrDefault(x.a.Id);
+            var required = requirements.Where(value => value.Key.MembershipId == x.m.Id).Sum(value => value.Value);
+            var paid = paidByMembershipPeriod.Where(value => value.Key.MembershipId == x.m.Id).Sum(value => value.Value);
             return new PersonMembershipDto(x.m.Id, x.a.Id, x.a.Name, x.m.Status, x.m.Kind, x.m.ShareCount, paid, Math.Max(0, required - paid));
         }).ToList();
         var settlements = await db.Settlements.AsNoTracking().Where(x => membershipIds.Contains(x.MembershipId))
             .Select(x => new SettlementDto(x.Id, x.AssociationId, x.MembershipId, x.TotalRequired, x.TotalPaid, x.Balance, x.Status)).ToListAsync(cancellationToken);
-        var obligations = membershipDtos.Sum(x => x.Paid + x.Remaining);
-        var paidTotal = membershipDtos.Sum(x => x.Paid);
+        var obligations = requirements.Sum(x => x.Value);
+        var paidTotal = paymentDtos.Sum(x => x.Amount);
         return new PersonProfileDto(new PersonDto(person.Id, person.FullName, person.PhoneNumber, person.SubscriberCode.Value,
             person.IsActive, person.CreatedAtUtc), membershipDtos, payouts, paymentDtos, settlements, obligations, paidTotal, Math.Max(0, obligations - paidTotal));
     }

@@ -12,7 +12,8 @@ public sealed class PayoutAssignment : AggregateRoot
     internal PayoutAssignment(Guid associationId, Guid periodId, PayoutRecipientType recipientType,
         Guid? membershipId, decimal shareCount, DateTimeOffset now)
     {
-        Guard.Against(shareCount <= 0, "payout.invalid_shares", "Payout share count must be positive.");
+        Guard.Against(shareCount <= 0 || decimal.Round(shareCount * 2, 0) != shareCount * 2,
+            "payout.invalid_shares", "Payout share count must be positive and use half-share increments.");
         Guard.Against(recipientType == PayoutRecipientType.ReserveSlot && shareCount != 1,
             "payout.reserve_full_share", "An unnamed reserve slot must represent exactly one full share.");
         Guard.Against(recipientType == PayoutRecipientType.Membership && membershipId is null,

@@ -27,4 +27,5 @@ public sealed class EmailOptions
     public string FromAddress { get; init; } = string.Empty;
     public string FromName { get; init; } = "Gameya";
     public string PublicApiBaseUrl { get; init; } = string.Empty;
+    public string PublicAppBaseUrl { get; init; } = "http://localhost:4200";
 }

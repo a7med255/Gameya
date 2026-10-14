@@ -14,6 +14,9 @@ public sealed class AuthController(ISender sender) : ControllerBase
     [HttpGet("confirm-email")]
     public async Task<IActionResult> ConfirmEmail([FromQuery] string userId, [FromQuery] string token, CancellationToken cancellationToken)
     { await sender.Send(new ConfirmEmailCommand(userId, token), cancellationToken); return NoContent(); }
+    [HttpPost("confirm-email/resend")]
+    public async Task<IActionResult> ResendConfirmation(ResendOwnerConfirmationCommand command, CancellationToken cancellationToken)
+    { await sender.Send(command, cancellationToken); return NoContent(); }
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginCommand command, CancellationToken cancellationToken) => Ok(await sender.Send(command, cancellationToken));
     [HttpPost("participant-login")]

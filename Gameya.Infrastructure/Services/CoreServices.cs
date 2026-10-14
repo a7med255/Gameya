@@ -79,6 +79,40 @@ public sealed class AssociationAccessService(ApplicationDbContext db, ICurrentUs
     }
 }
 
+public sealed class PersonAccessService(ApplicationDbContext db, ICurrentUser current, IClock clock) : IPersonAccessService
+{
+    public IQueryable<Guid> GetAccessiblePersonIds(string userId, bool isAdmin, bool isOwner)
+    {
+        if (isAdmin) return db.PeopleSet.Select(x => x.Id);
+        if (isOwner)
+        {
+            var ownedAssociationIds = db.AssociationsSet.Where(x => x.OwnerId == userId).Select(x => x.Id);
+            var memberIds = db.MembershipsSet.Where(x => ownedAssociationIds.Contains(x.AssociationId)).Select(x => x.PersonId);
+            var directlyManagedIds = db.OwnerPersonAccesses.Where(x => x.OwnerId == userId).Select(x => x.PersonId);
+            return memberIds.Concat(directlyManagedIds).Distinct();
+        }
+        var assignedAssociationIds = db.UserAssociationAccesses.Where(x => x.UserId == userId).Select(x => x.AssociationId);
+        return db.MembershipsSet.Where(x => assignedAssociationIds.Contains(x.AssociationId)).Select(x => x.PersonId).Distinct();
+    }
+
+    public async Task EnsureAccessAsync(Guid personId, CancellationToken cancellationToken)
+    {
+        var userId = current.UserId ?? throw new NotFoundException("person.not_found", "Person was not found.");
+        var ids = GetAccessiblePersonIds(userId, current.IsInRole(AppRoles.Admin), current.IsInRole(AppRoles.Owner));
+        if (!await ids.AnyAsync(x => x == personId, cancellationToken))
+            throw new NotFoundException("person.not_found", "Person was not found.");
+    }
+
+    public async Task GrantOwnerAccessAsync(string ownerId, Guid personId, CancellationToken cancellationToken)
+    {
+        if (await db.OwnerPersonAccesses.AnyAsync(x => x.OwnerId == ownerId && x.PersonId == personId, cancellationToken)) return;
+        await db.OwnerPersonAccesses.AddAsync(new OwnerPersonAccess
+        {
+            OwnerId = ownerId, PersonId = personId, GrantedAtUtc = clock.UtcNow
+        }, cancellationToken);
+    }
+}
+
 public sealed class AuditService(ApplicationDbContext db, ICurrentUser current, IClock clock) : IAuditService
 {
     public async Task WriteAsync(string action, string entityName, string entityId, object? oldValues, object? newValues,
