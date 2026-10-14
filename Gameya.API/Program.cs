@@ -109,11 +109,22 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.MapHealthChecks("/health");
+await app.Services.InitializeDatabaseAsync(
+    app.Configuration,
+    app.Environment,
+    app.Lifetime.ApplicationStopping);
 
-await app.Services.InitializeDatabaseAsync(app.Configuration, app.Environment, app.Lifetime.ApplicationStopping);
 if (!app.Configuration.GetValue<bool>("Testing:UseInMemoryDatabase"))
-    RecurringJob.AddOrUpdate<Gameya.Application.Abstractions.IMonthlyReportCoordinator>("gameya-monthly-owner-reports",
-        x => x.SendPreviousMonthAsync(CancellationToken.None), "0 6 1 * *");
+{
+    var recurringJobManager =
+        app.Services.GetRequiredService<IRecurringJobManager>();
+
+    recurringJobManager.AddOrUpdate<Gameya.Application.Abstractions.IMonthlyReportCoordinator>(
+        "gameya-monthly-owner-reports",
+        x => x.SendPreviousMonthAsync(CancellationToken.None),
+        "0 6 1 * *");
+}
+
 app.Run();
 
 public partial class Program;

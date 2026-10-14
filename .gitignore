@@ -3,6 +3,10 @@ obj/
 .vs/
 TestResults/
 *.user
+gameya-web/node_modules/
+gameya-web/dist/
+gameya-web/.angular/
+gameya-web/coverage/
 *.suo
 appsettings.Local.json
 secrets.json

@@ -1,5 +1,8 @@
 **/bin
 **/obj
+gameya-web/node_modules
+gameya-web/dist
+gameya-web/.angular
 .git
 .vs
 TestResults

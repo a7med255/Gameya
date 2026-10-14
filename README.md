@@ -2,6 +2,8 @@
 
 Gameya is a .NET 8 REST API for managing Egyptian rotating savings associations. It uses Clean Architecture, tactical DDD for financial workflows, CQRS with MediatR, SQL Server/EF Core, ASP.NET Core Identity, JWT access tokens with rotating refresh tokens, Hangfire, SMTP email, PDF reports, Serilog, FluentValidation, and Swagger.
 
+The repository also includes `gameya-web`, a standalone Angular 22 application with an Arabic Egyptian RTL interface, role-specific lazy routes, reactive forms, Signals/RxJS state, typed API clients, responsive mobile layouts, and Vitest coverage.
+
 ## Solution layout
 
 - `Gameya.Domain` — dependency-free aggregates, entities, value objects, rules, events, and exceptions.
@@ -24,6 +26,16 @@ dotnet run --project Gameya.API
 
 Swagger is available at `/swagger` in Development and health status at `/health`.
 
+Run the Angular application in a second terminal:
+
+```powershell
+cd gameya-web
+npm install
+npm start
+```
+
+The development environment calls `https://localhost:7043/api`. Update `src/environments/environment.development.ts` if the API uses a different launch URL.
+
 For a local container stack:
 
 ```powershell
@@ -31,6 +43,8 @@ $env:GAMEYA_SA_PASSWORD = '<strong SQL password>'
 $env:GAMEYA_JWT_KEY = '<at least 32 random bytes>'
 docker compose up --build
 ```
+
+The compose stack exposes the Angular application at `http://localhost:4200` and proxies its same-origin `/api` requests to the API container.
 
 ## Required production configuration
 
@@ -81,6 +95,9 @@ The source does not silently invent these rules:
 ```powershell
 dotnet build Gameya.sln --no-restore
 dotnet test Gameya.sln --no-restore
+cd gameya-web
+npm run build
+npm test
 ```
 
 The tests cover lifecycle rules, fractional shares, multiple payout recipients, reserve and advance exclusion, replacement splits, immutable payouts/payments, late days, settlements, email-verification registration, participant isolation, PaymentUser IDOR protection, oldest-first allocation, association credit, concurrency metadata, and layer dependencies.
