@@ -1,0 +1,1 @@
+import{jn as pE}from"./chunk-Bpa8GX-p.js";import{r as h}from"./chunk-BAslWg3P.js";var f=(()=>{class t{transform(e,r=!1){return h(e,r)}static{this.ɵfac=function(r){return new(r||t)}}static{this.ɵpipe=pE({name:`arabicDate`,type:t,pure:!0})}}return t})();export{f as t};

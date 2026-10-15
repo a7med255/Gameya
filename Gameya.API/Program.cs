@@ -50,7 +50,7 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler,
     ProblemDetailsAuthorizationResultHandler>();
 builder.Services.AddProblemDetails();
-builder.Services.AddHealthChecks().AddDbContextCheck<ApplicationDbContext>();
+builder.Services.AddHealthChecks().AddDbContextCheck<ApplicationDbContext>("database", tags: ["ready"]);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -121,6 +121,9 @@ if (!app.Environment.IsDevelopment())
 app.UseSwagger(); 
 app.UseSwaggerUI();
 
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.Use(async (context, next) =>
 {
     context.Response.Headers.XContentTypeOptions = "nosniff";
@@ -132,7 +135,46 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
-app.MapHealthChecks("/health");
+app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = _ => false
+});
+app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+});
+
+app.MapFallback(async context =>
+{
+    var path = context.Request.Path.Value ?? string.Empty;
+    if (path.StartsWith("/api", StringComparison.OrdinalIgnoreCase) || path.StartsWith("/health", StringComparison.OrdinalIgnoreCase))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        context.Response.ContentType = "application/problem+json";
+        await context.Response.WriteAsJsonAsync(new Microsoft.AspNetCore.Mvc.ProblemDetails
+        {
+            Status = StatusCodes.Status404NotFound,
+            Title = "Not Found",
+            Detail = $"The endpoint '{path}' was not found.",
+            Instance = path
+        });
+        return;
+    }
+
+    var webRoot = app.Environment.WebRootPath ?? Path.Combine(AppContext.BaseDirectory, "wwwroot");
+    var indexPath = Path.Combine(webRoot, "index.html");
+    if (File.Exists(indexPath))
+    {
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.SendFileAsync(indexPath);
+    }
+    else
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        await context.Response.WriteAsync("Frontend assets are not available in wwwroot. Please build and deploy the Angular application.");
+    }
+});
+
 await app.Services.InitializeDatabaseAsync(
     app.Configuration,
     app.Environment,
