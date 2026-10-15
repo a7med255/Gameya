@@ -32,23 +32,23 @@ public static class DependencyInjection
         var useInMemory =
         environment.IsEnvironment("Testing") &&
         configuration.GetValue<bool>("Testing:UseInMemoryDatabase");
-            services.AddDbContext<ApplicationDbContext>(options =>
+        services.AddDbContext<ApplicationDbContext>(options =>
+        {
+            if (useInMemory)
             {
-                if (useInMemory)
-                {
-                    options.UseInMemoryDatabase(
-                        configuration["Testing:DatabaseName"] ?? "GameyaTests");
-                }
-                else
-                {
-                    options.UseSqlServer(
-                        connectionString,
-                        sql => sql
-                            .EnableRetryOnFailure(5)
-                            .MigrationsAssembly(
-                                typeof(ApplicationDbContext).Assembly.FullName));
-                }
-            });
+                options.UseInMemoryDatabase(
+                    configuration["Testing:DatabaseName"] ?? "GameyaTests");
+            }
+            else
+            {
+                options.UseSqlServer(
+                    connectionString,
+                    sql => sql
+                        .EnableRetryOnFailure(5)
+                        .MigrationsAssembly(
+                            typeof(ApplicationDbContext).Assembly.FullName));
+            }
+        });
         services.AddScoped<IApplicationDbContext>(x => x.GetRequiredService<ApplicationDbContext>());
         services.AddIdentityCore<ApplicationUser>(options =>
         {
@@ -73,10 +73,16 @@ public static class DependencyInjection
             options.MapInboundClaims = false;
             options.TokenValidationParameters = new TokenValidationParameters
             {
-                ValidateIssuer = true, ValidIssuer = jwt.Issuer, ValidateAudience = true, ValidAudience = jwt.Audience,
-                ValidateIssuerSigningKey = true, IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
-                ValidateLifetime = true, ClockSkew = TimeSpan.FromSeconds(30),
-                NameClaimType = ClaimTypes.Name, RoleClaimType = ClaimTypes.Role
+                ValidateIssuer = true,
+                ValidIssuer = jwt.Issuer,
+                ValidateAudience = true,
+                ValidAudience = jwt.Audience,
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.FromSeconds(30),
+                NameClaimType = ClaimTypes.Name,
+                RoleClaimType = ClaimTypes.Role
             };
         });
         services.AddAuthorization(options =>
