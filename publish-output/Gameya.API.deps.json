@@ -11,7 +11,6 @@
           "Gameya.Application": "1.0.0",
           "Gameya.Infrastructure": "1.0.0",
           "Microsoft.EntityFrameworkCore.Design": "8.0.14",
-          "Microsoft.EntityFrameworkCore.InMemory": "8.0.14",
           "Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore": "8.0.14",
           "Serilog.AspNetCore": "8.0.3",
           "Serilog.Sinks.Console": "6.0.0",
@@ -310,11 +309,6 @@
           "Microsoft.EntityFrameworkCore.Relational": "8.0.14",
           "Microsoft.Extensions.DependencyModel": "8.0.2",
           "Mono.TextTemplating": "2.2.1"
-        }
-      },
-      "Microsoft.EntityFrameworkCore.InMemory/8.0.14": {
-        "dependencies": {
-          "Microsoft.EntityFrameworkCore": "8.0.14"
         }
       },
       "Microsoft.EntityFrameworkCore.Relational/8.0.14": {
@@ -1401,13 +1395,6 @@
       "sha512": "sha512-ncCvbJYGXK7eSOVqfQNXLaxMWKGaKSYX1VJZjyJXg3IxxmF50B8p/isprgrVLR+SlQwTG1lmhPAPn0dOvCqlrw==",
       "path": "microsoft.entityframeworkcore.design/8.0.14",
       "hashPath": "microsoft.entityframeworkcore.design.8.0.14.nupkg.sha512"
-    },
-    "Microsoft.EntityFrameworkCore.InMemory/8.0.14": {
-      "type": "package",
-      "serviceable": true,
-      "sha512": "sha512-q0/yGN42dy/ph9tV1ecuvrzpfkGuGdjyfdWNSXylQ0CDUidBCG6o+srOyOPg32gbjV0nLRv9YFkrS4xprXwAew==",
-      "path": "microsoft.entityframeworkcore.inmemory/8.0.14",
-      "hashPath": "microsoft.entityframeworkcore.inmemory.8.0.14.nupkg.sha512"
     },
     "Microsoft.EntityFrameworkCore.Relational/8.0.14": {
       "type": "package",

@@ -117,12 +117,12 @@ public static class DependencyInjection
             ?? throw new InvalidOperationException("Could not find InMemoryDbContextOptionsExtensions in Microsoft.EntityFrameworkCore.InMemory.");
 
         var method = extensionType.GetMethods(BindingFlags.Public | BindingFlags.Static)
-            .FirstOrDefault(m => m.Name == "UseInMemoryDatabase" && m.GetParameters().Length == 2)
+            .FirstOrDefault(m => m.Name == "UseInMemoryDatabase" && !m.IsGenericMethod && m.GetParameters().Length == 2)
             ?? extensionType.GetMethods(BindingFlags.Public | BindingFlags.Static)
-                .FirstOrDefault(m => m.Name == "UseInMemoryDatabase" && m.GetParameters().Length == 3);
+                .FirstOrDefault(m => m.Name == "UseInMemoryDatabase" && !m.IsGenericMethod && m.GetParameters().Length == 3);
 
         if (method is null)
-            throw new InvalidOperationException("Could not find UseInMemoryDatabase method on InMemoryDbContextOptionsExtensions.");
+            throw new InvalidOperationException("Could not find non-generic UseInMemoryDatabase method on InMemoryDbContextOptionsExtensions.");
 
         if (method.GetParameters().Length == 2)
         {
