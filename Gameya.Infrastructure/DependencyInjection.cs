@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using QuestPDF.Infrastructure;
 
@@ -21,17 +22,33 @@ namespace Gameya.Infrastructure;
 
 public static class DependencyInjection
 {
-    public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddInfrastructure(
+    this IServiceCollection services,
+    IConfiguration configuration,
+    IHostEnvironment environment)
     {
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection is required.");
-        var useInMemory = configuration.GetValue<bool>("Testing:UseInMemoryDatabase");
-        services.AddDbContext<ApplicationDbContext>(options =>
-        {
-            if (useInMemory) options.UseInMemoryDatabase(configuration["Testing:DatabaseName"] ?? "GameyaTests");
-            else options.UseSqlServer(connectionString,
-                sql => sql.EnableRetryOnFailure(5).MigrationsAssembly(typeof(ApplicationDbContext).Assembly.FullName));
-        });
+        var useInMemory =
+        environment.IsEnvironment("Testing") &&
+        configuration.GetValue<bool>("Testing:UseInMemoryDatabase");
+            services.AddDbContext<ApplicationDbContext>(options =>
+            {
+                if (useInMemory)
+                {
+                    options.UseInMemoryDatabase(
+                        configuration["Testing:DatabaseName"] ?? "GameyaTests");
+                }
+                else
+                {
+                    options.UseSqlServer(
+                        connectionString,
+                        sql => sql
+                            .EnableRetryOnFailure(5)
+                            .MigrationsAssembly(
+                                typeof(ApplicationDbContext).Assembly.FullName));
+                }
+            });
         services.AddScoped<IApplicationDbContext>(x => x.GetRequiredService<ApplicationDbContext>());
         services.AddIdentityCore<ApplicationUser>(options =>
         {

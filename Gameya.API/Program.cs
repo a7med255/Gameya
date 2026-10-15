@@ -21,7 +21,9 @@ builder.Host.UseSerilog((context, configuration) => configuration
     .WriteTo.Console(formatProvider: CultureInfo.InvariantCulture));
 
 builder.Services.AddApplication();
-builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddInfrastructure(
+    builder.Configuration,
+    builder.Environment);
 builder.Services.AddControllers().AddJsonOptions(options =>
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()))
     .ConfigureApiBehaviorOptions(options =>
