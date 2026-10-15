@@ -21,6 +21,8 @@ public static class DatabaseInitializationExtensions
 
         try
         {
+            logger.LogInformation("Database provider initialized: {Provider} (Environment: {Environment})", db.Database.ProviderName, environment.EnvironmentName);
+
             if (db.Database.IsRelational())
             {
                 logger.LogInformation("Verifying database connectivity...");

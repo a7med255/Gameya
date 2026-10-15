@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Security.Claims;
 using System.Text;
 using Gameya.Application.Abstractions;
@@ -23,21 +24,21 @@ namespace Gameya.Infrastructure;
 public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(
-    this IServiceCollection services,
-    IConfiguration configuration,
-    IHostEnvironment environment)
+        this IServiceCollection services,
+        IConfiguration configuration,
+        IHostEnvironment environment)
     {
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection is required.");
-        var useInMemory =
-        environment.IsEnvironment("Testing") &&
-        configuration.GetValue<bool>("Testing:UseInMemoryDatabase");
+
+        var useInMemory = environment.IsEnvironment("Testing") &&
+            configuration.GetValue<bool>("Testing:UseInMemoryDatabase");
+
         services.AddDbContext<ApplicationDbContext>(options =>
         {
             if (useInMemory)
             {
-                options.UseInMemoryDatabase(
-                    configuration["Testing:DatabaseName"] ?? "GameyaTests");
+                ConfigureInMemoryDatabase(options, configuration["Testing:DatabaseName"] ?? "GameyaTests");
             }
             else
             {
@@ -104,5 +105,32 @@ public static class DependencyInjection
 
         QuestPDF.Settings.License = LicenseType.Community;
         return services;
+    }
+
+    private static void ConfigureInMemoryDatabase(DbContextOptionsBuilder options, string databaseName)
+    {
+        var inMemoryAssembly = AppDomain.CurrentDomain.GetAssemblies()
+            .FirstOrDefault(a => a.GetName().Name == "Microsoft.EntityFrameworkCore.InMemory")
+            ?? Assembly.Load("Microsoft.EntityFrameworkCore.InMemory");
+
+        var extensionType = inMemoryAssembly.GetType("Microsoft.EntityFrameworkCore.InMemoryDbContextOptionsExtensions")
+            ?? throw new InvalidOperationException("Could not find InMemoryDbContextOptionsExtensions in Microsoft.EntityFrameworkCore.InMemory.");
+
+        var method = extensionType.GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .FirstOrDefault(m => m.Name == "UseInMemoryDatabase" && m.GetParameters().Length == 2)
+            ?? extensionType.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .FirstOrDefault(m => m.Name == "UseInMemoryDatabase" && m.GetParameters().Length == 3);
+
+        if (method is null)
+            throw new InvalidOperationException("Could not find UseInMemoryDatabase method on InMemoryDbContextOptionsExtensions.");
+
+        if (method.GetParameters().Length == 2)
+        {
+            method.Invoke(null, [options, databaseName]);
+        }
+        else
+        {
+            method.Invoke(null, [options, databaseName, null]);
+        }
     }
 }
