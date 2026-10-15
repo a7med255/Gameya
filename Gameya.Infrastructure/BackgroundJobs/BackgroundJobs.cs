@@ -2,23 +2,10 @@ using Gameya.Application.Abstractions;
 using Gameya.Application.Common;
 using Gameya.Infrastructure.Identity;
 using Gameya.Infrastructure.Persistence;
-using Hangfire;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace Gameya.Infrastructure.BackgroundJobs;
-
-public sealed class BackgroundJobScheduler(IBackgroundJobClient jobs) : IBackgroundJobScheduler
-{
-    public string EnqueueMonthlyReport(string userId, bool includeAllOwners, int year, int month) =>
-        jobs.Enqueue<IIdempotentReportJob>(x => x.ExecuteAsync($"manual:{Guid.NewGuid():N}", userId,
-            includeAllOwners, year, month, CancellationToken.None));
-}
-
-internal sealed class InlineTestJobScheduler : IBackgroundJobScheduler
-{
-    public string EnqueueMonthlyReport(string userId, bool includeAllOwners, int year, int month) => $"test-{Guid.NewGuid():N}";
-}
 
 public sealed class IdempotentReportJob(ApplicationDbContext db, IReportDeliveryService delivery, IClock clock) : IIdempotentReportJob
 {

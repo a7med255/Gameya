@@ -19,6 +19,8 @@ export const API_ENDPOINTS = {
   resendConfirmation: `${root.auth}/confirm-email/resend`,
   confirmEmail: `${root.auth}/confirm-email`,
   acceptInvitation: `${root.auth}/invitations/accept`,
+  requestPasswordReset: `${root.auth}/password-reset/request`,
+  resetPassword: `${root.auth}/password-reset`,
   participantMe: `${root.participant}/me`,
   sendMonthlyReport: `${root.reports}/send`,
 } as const;

@@ -40,6 +40,9 @@ public sealed class AssociationsController(ISender sender) : ControllerBase
     public async Task<IActionResult> ChangeMemberShares(Guid id, Guid memberId, ChangeMemberSharesRequest request,
         CancellationToken cancellationToken)
     { await sender.Send(new ChangeMemberSharesCommand(id, memberId, request.ShareCount), cancellationToken); return NoContent(); }
+    [HttpDelete("{id:guid}/members/{memberId:guid}"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
+    public async Task<IActionResult> RemoveMember(Guid id, Guid memberId, CancellationToken cancellationToken)
+    { await sender.Send(new RemoveMemberCommand(id, memberId), cancellationToken); return NoContent(); }
     [HttpPost("{id:guid}/start"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
     public async Task<IActionResult> Start(Guid id, CancellationToken cancellationToken) { await sender.Send(new StartAssociationCommand(id), cancellationToken); return NoContent(); }
     [HttpPost("{id:guid}/pause"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]

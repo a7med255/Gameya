@@ -21,7 +21,7 @@ import { StatusBadgeComponent } from '../../shared/ui/status-badge.component';
   `,
 })
 export class PaymentsHistoryComponent {
-  private readonly api = inject(PaymentsApiService); protected readonly result = signal<PagedResult<PaymentDto>>({ items: [], page: 1, pageSize: 20, totalCount: 0 }); protected readonly loading = signal(true); protected readonly error = signal(false); protected readonly methodLabels = PAYMENT_METHOD_LABELS;
+  private readonly api = inject(PaymentsApiService); protected readonly result = signal<PagedResult<PaymentDto>>({ items: [], page: 1, pageNumber: 1, pageSize: 20, totalCount: 0, totalPages: 0, hasNext: false, hasPrevious: false }); protected readonly loading = signal(true); protected readonly error = signal(false); protected readonly methodLabels = PAYMENT_METHOD_LABELS;
   constructor() { this.load(1); }
   protected load(page: number): void { this.loading.set(true); this.error.set(false); this.api.list(null, page).subscribe({ next: (result) => { this.result.set(result); this.loading.set(false); }, error: () => { this.error.set(true); this.loading.set(false); } }); }
   protected totalPages(): number { return Math.max(1, Math.ceil(this.result().totalCount / this.result().pageSize)); }

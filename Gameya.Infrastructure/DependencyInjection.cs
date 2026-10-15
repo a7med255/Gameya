@@ -9,7 +9,6 @@ using Gameya.Infrastructure.Identity;
 using Gameya.Infrastructure.Persistence;
 using Gameya.Infrastructure.Reports;
 using Gameya.Infrastructure.Services;
-using Hangfire;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -80,15 +79,6 @@ public static class DependencyInjection
         services.AddScoped<IIdempotentReportJob, IdempotentReportJob>();
         services.AddScoped<IMonthlyReportCoordinator, MonthlyReportCoordinator>();
 
-        if (useInMemory)
-            services.AddScoped<IBackgroundJobScheduler, InlineTestJobScheduler>();
-        else
-        {
-            services.AddHangfire(options => options.SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
-                .UseSimpleAssemblyNameTypeSerializer().UseRecommendedSerializerSettings().UseSqlServerStorage(connectionString));
-            services.AddHangfireServer(options => options.WorkerCount = Math.Max(1, Environment.ProcessorCount / 2));
-            services.AddScoped<IBackgroundJobScheduler, BackgroundJobScheduler>();
-        }
         QuestPDF.Settings.License = LicenseType.Community;
         return services;
     }

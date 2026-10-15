@@ -12,7 +12,7 @@ public sealed class Payment : AggregateRoot
 
     public Payment(Guid personId, string recordedByUserId, decimal amount, PaymentMethod method,
         DateTimeOffset paidAtUtc, DateTimeOffset createdAtUtc, PaymentEntryType entryType = PaymentEntryType.Payment,
-        Guid? adjustsPaymentId = null)
+        Guid? adjustsPaymentId = null, string? idempotencyKey = null)
     {
         Guard.Against(amount == 0, "payment.zero_amount", "Payment amount cannot be zero.");
         Guard.Against(entryType == PaymentEntryType.Payment && amount < 0, "payment.negative", "A payment must be positive.");
@@ -26,6 +26,7 @@ public sealed class Payment : AggregateRoot
         CreatedAtUtc = createdAtUtc;
         EntryType = entryType;
         AdjustsPaymentId = adjustsPaymentId;
+        IdempotencyKey = string.IsNullOrWhiteSpace(idempotencyKey) ? null : idempotencyKey.Trim();
         Raise(new PaymentRecorded(Id, personId, amount, createdAtUtc));
     }
 
@@ -37,6 +38,7 @@ public sealed class Payment : AggregateRoot
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public PaymentEntryType EntryType { get; private set; }
     public Guid? AdjustsPaymentId { get; private set; }
+    public string? IdempotencyKey { get; private set; }
     public byte[] RowVersion { get; private set; } = [];
     public IReadOnlyCollection<PaymentAllocation> Allocations => _allocations.AsReadOnly();
 

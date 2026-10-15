@@ -41,7 +41,7 @@ import { StatusBadgeComponent } from '../../shared/ui/status-badge.component';
 export class PeopleListComponent {
   private readonly api = inject(PeopleApiService); private readonly notifications = inject(NotificationService); private readonly errors = inject(ApiErrorService); private readonly router = inject(Router);
   protected readonly search = new FormControl('', { nonNullable: true });
-  protected readonly result = signal<PagedResult<PersonDto>>({ items: [], page: 1, pageSize: 20, totalCount: 0 });
+  protected readonly result = signal<PagedResult<PersonDto>>({ items: [], page: 1, pageNumber: 1, pageSize: 20, totalCount: 0, totalPages: 0, hasNext: false, hasPrevious: false });
   protected readonly loading = signal(true); protected readonly error = signal(false); protected readonly showCreate = signal(false); protected readonly saving = signal(false);
   protected readonly createForm = new FormGroup({ fullName: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(200)] }), phoneNumber: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/^[0-9+ ]+$/), Validators.maxLength(30)] }) });
   constructor() { this.search.valueChanges.pipe(startWith(''), debounceTime(350), distinctUntilChanged(), switchMap((search) => { this.loading.set(true); this.error.set(false); return this.api.list(search, 1); })).subscribe({ next: (result) => { this.result.set(result); this.loading.set(false); }, error: () => { this.error.set(true); this.loading.set(false); } }); }

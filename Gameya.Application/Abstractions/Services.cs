@@ -1,4 +1,5 @@
 using Gameya.Application.DTOs;
+using Gameya.Application.Common;
 
 namespace Gameya.Application.Abstractions;
 
@@ -31,6 +32,8 @@ public interface IPersonAccessService
     Task EnsureAccessAsync(Guid personId, CancellationToken cancellationToken);
     Task GrantOwnerAccessAsync(string ownerId, Guid personId, string normalizedName, string normalizedPhone,
         CancellationToken cancellationToken);
+    Task UpdateOwnerAccessAsync(string ownerId, Guid personId, string normalizedName, string normalizedPhone,
+        CancellationToken cancellationToken);
 }
 
 public interface IIdentityService
@@ -44,6 +47,14 @@ public interface IIdentityService
     Task<AuthTokensDto> RefreshAsync(string refreshToken, CancellationToken cancellationToken);
     Task RevokeAsync(string refreshToken, CancellationToken cancellationToken);
     Task<Guid> InvitePaymentUserAsync(string ownerId, bool isAdmin, string email, IReadOnlyCollection<Guid> associationIds, CancellationToken cancellationToken);
+    Task<PagedResult<PaymentUserDto>> GetPaymentUsersAsync(string actorId, bool isAdmin, string? search,
+        int page, int pageSize, CancellationToken cancellationToken);
+    Task<PagedResult<PaymentUserInvitationDto>> GetPaymentUserInvitationsAsync(string actorId, bool isAdmin,
+        string? search, int page, int pageSize, CancellationToken cancellationToken);
+    Task RevokePaymentUserInvitationAsync(string actorId, bool isAdmin, Guid invitationId,
+        CancellationToken cancellationToken);
+    Task DeactivatePaymentUserAsync(string actorId, bool isAdmin, string paymentUserId,
+        CancellationToken cancellationToken);
     Task<IReadOnlyCollection<Guid>> SetPaymentUserAssociationsAsync(string actorId, bool isAdmin, string paymentUserId,
         IReadOnlyCollection<Guid> associationIds, CancellationToken cancellationToken);
     Task AcceptInvitationAsync(string token, string password, CancellationToken cancellationToken);
@@ -64,11 +75,6 @@ public interface IReportGenerator
 public interface IReportDeliveryService
 {
     Task SendMonthlyAsync(string userId, bool includeAllOwners, int year, int month, CancellationToken cancellationToken);
-}
-
-public interface IBackgroundJobScheduler
-{
-    string EnqueueMonthlyReport(string userId, bool includeAllOwners, int year, int month);
 }
 
 public interface IIdempotentReportJob

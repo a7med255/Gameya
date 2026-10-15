@@ -284,6 +284,10 @@ namespace Gameya.Infrastructure.Persistence.Migrations
                     b.Property<int>("EntryType")
                         .HasColumnType("int");
 
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<int>("Method")
                         .HasColumnType("int");
 
@@ -308,9 +312,11 @@ namespace Gameya.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("AdjustsPaymentId");
 
-                    b.HasIndex("RecordedByUserId");
-
                     b.HasIndex("PersonId", "PaidAtUtc");
+
+                    b.HasIndex("RecordedByUserId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasFilter("[IdempotencyKey] IS NOT NULL");
 
                     b.ToTable("Payments", (string)null);
                 });
@@ -726,6 +732,9 @@ namespace Gameya.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("AcceptedAtUtc")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(256)
@@ -738,6 +747,13 @@ namespace Gameya.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(450)");
 
+                    b.Property<DateTimeOffset?>("RevokedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RevokedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
                     b.Property<string>("TokenHash")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -745,10 +761,10 @@ namespace Gameya.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("OwnerId");
-
                     b.HasIndex("TokenHash")
                         .IsUnique();
+
+                    b.HasIndex("OwnerId", "CreatedAtUtc");
 
                     b.ToTable("PaymentUserInvitations", (string)null);
                 });

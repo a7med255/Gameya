@@ -6,6 +6,7 @@ using Gameya.Application.Abstractions;
 using Gameya.Application.Common;
 using Gameya.Application.DTOs;
 using Gameya.Infrastructure.Identity;
+using Gameya.Infrastructure.Email;
 using Gameya.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.WebUtilities;
@@ -52,9 +53,13 @@ public sealed class IdentityService(
     {
         var confirmation = await users.GenerateEmailConfirmationTokenAsync(user);
         var encoded = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(confirmation));
-        var url = $"{emailOptions.Value.PublicApiBaseUrl.TrimEnd('/')}/api/auth/confirm-email?userId={Uri.EscapeDataString(user.Id)}&token={Uri.EscapeDataString(encoded)}";
-        await email.SendAsync(user.Email!, "Confirm your Gameya account",
-            $"<p>Confirm your Gameya account by opening <a href=\"{url}\">this secure link</a>.</p>", null, null, cancellationToken);
+        var url = $"{emailOptions.Value.PublicAppBaseUrl.TrimEnd('/')}/auth/confirm-email?userId={Uri.EscapeDataString(user.Id)}&token={Uri.EscapeDataString(encoded)}";
+        await email.SendAsync(user.Email!, "تأكيد بريدك الإلكتروني في نظام الجمعية",
+            ArabicEmailTemplate.Action("تأكيد البريد الإلكتروني",
+                "أهلاً بيك. اضغط على الزر لتأكيد بريدك الإلكتروني وتفعيل حسابك.",
+                "تأكيد البريد الإلكتروني", url,
+                "لو إنت ما أنشأتش الحساب، تجاهل الرسالة دي وماتشاركش الرابط مع أي حد."),
+            null, null, cancellationToken);
     }
 
     public async Task ConfirmEmailAsync(string userId, string token, CancellationToken cancellationToken)
@@ -73,8 +78,11 @@ public sealed class IdentityService(
         var reset = await users.GeneratePasswordResetTokenAsync(user);
         var encoded = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(reset));
         var url = $"{emailOptions.Value.PublicAppBaseUrl.TrimEnd('/')}/auth/reset-password?userId={Uri.EscapeDataString(user.Id)}&token={Uri.EscapeDataString(encoded)}";
-        await email.SendAsync(user.Email!, "Reset your Gameya password",
-            $"<p>Reset your Gameya password by opening <a href=\"{url}\">this secure link</a>. If you did not request it, ignore this message.</p>",
+        await email.SendAsync(user.Email!, "إعادة تعيين كلمة المرور في نظام الجمعية",
+            ArabicEmailTemplate.Action("إعادة تعيين كلمة المرور",
+                "وصلنا طلب لتغيير كلمة مرور حسابك. اضغط على الزر لاختيار كلمة مرور جديدة.",
+                "تغيير كلمة المرور", url,
+                "لو إنت ما طلبتش تغيير كلمة المرور، تجاهل الرسالة دي وسيظل حسابك كما هو."),
             null, null, cancellationToken);
     }
 
@@ -183,21 +191,139 @@ public sealed class IdentityService(
         var ids = associationIds.Distinct().ToArray();
         if (await db.AssociationsSet.CountAsync(x => ids.Contains(x.Id) && (isAdmin || x.OwnerId == ownerId), cancellationToken) != ids.Length)
             throw new NotFoundException("association.not_found", "One or more associations were not found.");
-        if (await users.FindByEmailAsync(emailAddress.Trim()) is not null)
+        var normalizedEmail = emailAddress.Trim();
+        if (await users.FindByEmailAsync(normalizedEmail) is not null)
             throw new ConflictException("auth.email_exists", "An account with this email already exists.");
+        var now = clock.UtcNow;
+        var priorInvitations = await db.PaymentUserInvitations
+            .Where(x => x.OwnerId == ownerId && x.Email == normalizedEmail && x.AcceptedAtUtc == null
+                && x.RevokedAtUtc == null && x.ExpiresAtUtc > now)
+            .ToListAsync(cancellationToken);
+        foreach (var prior in priorInvitations)
+        {
+            prior.RevokedAtUtc = now;
+            prior.RevokedByUserId = ownerId;
+        }
         var rawToken = CreateOpaqueToken();
         var invitation = new PaymentUserInvitation
         {
-            OwnerId = ownerId, Email = emailAddress.Trim(), TokenHash = Hash(rawToken),
-            ExpiresAtUtc = clock.UtcNow.AddDays(7),
+            OwnerId = ownerId, Email = normalizedEmail, TokenHash = Hash(rawToken), CreatedAtUtc = now,
+            ExpiresAtUtc = now.AddDays(7),
             Associations = ids.Select(x => new InvitationAssociation { AssociationId = x }).ToList()
         };
         await db.PaymentUserInvitations.AddAsync(invitation, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         var url = $"{emailOptions.Value.PublicAppBaseUrl.TrimEnd('/')}/payment-user-invitation?token={Uri.EscapeDataString(rawToken)}";
-        await email.SendAsync(invitation.Email, "Your Gameya invitation",
-            $"<p>Accept your Gameya invitation by opening <a href=\"{url}\">this secure link</a>.</p>", null, null, cancellationToken);
+        await email.SendAsync(invitation.Email, "دعوة للانضمام إلى نظام الجمعية",
+            ArabicEmailTemplate.Action("دعوة لتسجيل المدفوعات",
+                "تمت دعوتك للانضمام إلى فريق تسجيل المدفوعات. الرابط صالح لمدة 7 أيام ويُستخدم مرة واحدة فقط.",
+                "قبول الدعوة وإنشاء الحساب", url,
+                "لو الدعوة مش موجهة ليك، تجاهل الرسالة دي. لا تشارك رابط الدعوة مع أي شخص."),
+            null, null, cancellationToken);
         return invitation.Id;
+    }
+
+    public async Task<PagedResult<PaymentUserDto>> GetPaymentUsersAsync(string actorId, bool isAdmin,
+        string? search, int page, int pageSize, CancellationToken cancellationToken)
+    {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        var paymentUserRoleId = await db.Roles.AsNoTracking()
+            .Where(x => x.NormalizedName == "PAYMENTUSER")
+            .Select(x => x.Id).SingleAsync(cancellationToken);
+        var roleUserIds = db.UserRoles.AsNoTracking().Where(x => x.RoleId == paymentUserRoleId)
+            .Select(x => x.UserId);
+        var query = db.Users.AsNoTracking().Where(x => roleUserIds.Contains(x.Id));
+        if (!isAdmin)
+        {
+            var manageableAssociations = db.AssociationsSet.AsNoTracking()
+                .Where(x => x.OwnerId == actorId).Select(x => x.Id);
+            var visibleUserIds = db.UserAssociationAccesses.AsNoTracking()
+                .Where(x => manageableAssociations.Contains(x.AssociationId)).Select(x => x.UserId);
+            query = query.Where(x => visibleUserIds.Contains(x.Id));
+        }
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var value = search.Trim();
+            query = query.Where(x => (x.Email != null && x.Email.Contains(value)) || x.DisplayName.Contains(value));
+        }
+        var total = await query.CountAsync(cancellationToken);
+        var userRows = await query.OrderBy(x => x.DisplayName).ThenBy(x => x.Email)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .Select(x => new { x.Id, Email = x.Email ?? string.Empty, x.DisplayName, x.IsActive, x.CreatedAtUtc })
+            .ToListAsync(cancellationToken);
+        var userIds = userRows.Select(x => x.Id).ToArray();
+        var accesses = db.UserAssociationAccesses.AsNoTracking().Where(x => userIds.Contains(x.UserId));
+        if (!isAdmin)
+        {
+            var manageableAssociations = db.AssociationsSet.AsNoTracking()
+                .Where(x => x.OwnerId == actorId).Select(x => x.Id);
+            accesses = accesses.Where(x => manageableAssociations.Contains(x.AssociationId));
+        }
+        var accessRows = await accesses.Select(x => new { x.UserId, x.AssociationId }).ToListAsync(cancellationToken);
+        var items = userRows.Select(x => new PaymentUserDto(x.Id, x.Email, x.DisplayName, x.IsActive,
+            x.CreatedAtUtc, accessRows.Where(a => a.UserId == x.Id).Select(a => a.AssociationId).ToArray())).ToArray();
+        return new PagedResult<PaymentUserDto>(items, page, pageSize, total);
+    }
+
+    public async Task<PagedResult<PaymentUserInvitationDto>> GetPaymentUserInvitationsAsync(string actorId,
+        bool isAdmin, string? search, int page, int pageSize, CancellationToken cancellationToken)
+    {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        var query = db.PaymentUserInvitations.AsNoTracking();
+        if (!isAdmin) query = query.Where(x => x.OwnerId == actorId);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var value = search.Trim();
+            query = query.Where(x => x.Email.Contains(value));
+        }
+        var total = await query.CountAsync(cancellationToken);
+        var invitations = await query.OrderByDescending(x => x.CreatedAtUtc)
+            .Skip((page - 1) * pageSize).Take(pageSize).Include(x => x.Associations)
+            .ToListAsync(cancellationToken);
+        var now = clock.UtcNow;
+        var items = invitations.Select(x => new PaymentUserInvitationDto(x.Id, x.Email, x.CreatedAtUtc,
+            x.ExpiresAtUtc, x.AcceptedAtUtc, x.RevokedAtUtc, x.Associations.Select(a => a.AssociationId).ToArray(),
+            x.RevokedAtUtc.HasValue ? "Revoked" : x.AcceptedAtUtc.HasValue ? "Accepted"
+                : x.ExpiresAtUtc <= now ? "Expired" : "Active")).ToArray();
+        return new PagedResult<PaymentUserInvitationDto>(items, page, pageSize, total);
+    }
+
+    public async Task RevokePaymentUserInvitationAsync(string actorId, bool isAdmin, Guid invitationId,
+        CancellationToken cancellationToken)
+    {
+        var invitation = await db.PaymentUserInvitations.SingleOrDefaultAsync(
+            x => x.Id == invitationId && (isAdmin || x.OwnerId == actorId), cancellationToken)
+            ?? throw new NotFoundException("auth.invitation_not_found", "Invitation was not found.");
+        if (invitation.AcceptedAtUtc.HasValue)
+            throw new ConflictException("auth.invitation_already_accepted",
+                "An accepted invitation cannot be revoked; manage account access instead.");
+        if (invitation.RevokedAtUtc.HasValue) return;
+        invitation.RevokedAtUtc = clock.UtcNow;
+        invitation.RevokedByUserId = actorId;
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task DeactivatePaymentUserAsync(string actorId, bool isAdmin, string paymentUserId,
+        CancellationToken cancellationToken)
+    {
+        var paymentUser = await users.FindByIdAsync(paymentUserId);
+        if (paymentUser is null || !await users.IsInRoleAsync(paymentUser, AppRoles.PaymentUser))
+            throw new NotFoundException("user.not_found", "Payment user was not found.");
+        var manageableAssociationIds = isAdmin
+            ? db.AssociationsSet.Select(x => x.Id)
+            : db.AssociationsSet.Where(x => x.OwnerId == actorId).Select(x => x.Id);
+        var accesses = await db.UserAssociationAccesses.Where(x => x.UserId == paymentUserId
+                && manageableAssociationIds.Contains(x.AssociationId))
+            .ToListAsync(cancellationToken);
+        if (accesses.Count == 0)
+            throw new NotFoundException("user.not_found", "Payment user was not found.");
+        db.UserAssociationAccesses.RemoveRange(accesses);
+        var hasOtherAccess = await db.UserAssociationAccesses.AnyAsync(x => x.UserId == paymentUserId
+            && !manageableAssociationIds.Contains(x.AssociationId), cancellationToken);
+        if (isAdmin || !hasOtherAccess) paymentUser.IsActive = false;
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyCollection<Guid>> SetPaymentUserAssociationsAsync(string actorId, bool isAdmin, string paymentUserId,
@@ -235,7 +361,8 @@ public sealed class IdentityService(
             var hash = Hash(token);
             var invitation = await db.PaymentUserInvitations.Include(x => x.Associations)
                 .SingleOrDefaultAsync(x => x.TokenHash == hash, innerCt);
-            if (invitation is null || invitation.AcceptedAtUtc.HasValue || invitation.ExpiresAtUtc <= clock.UtcNow)
+            if (invitation is null || invitation.AcceptedAtUtc.HasValue || invitation.RevokedAtUtc.HasValue
+                || invitation.ExpiresAtUtc <= clock.UtcNow)
                 throw new AuthenticationException("auth.invalid_invitation", "Invitation is invalid or expired.");
             var user = new ApplicationUser
             {

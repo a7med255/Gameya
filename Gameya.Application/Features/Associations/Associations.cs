@@ -143,6 +143,22 @@ public sealed class ChangeMemberSharesHandler(IApplicationDbContext db, IAssocia
     }
 }
 
+public sealed record RemoveMemberCommand(Guid AssociationId, Guid MembershipId) : IRequest;
+public sealed class RemoveMemberHandler(IApplicationDbContext db, IAssociationAccessService access,
+    IClock clock, IAuditService audit) : IRequestHandler<RemoveMemberCommand>
+{
+    public async Task Handle(RemoveMemberCommand request, CancellationToken cancellationToken)
+    {
+        await access.EnsureAccessAsync(request.AssociationId, cancellationToken);
+        var association = await db.FindAssociationForUpdateAsync(request.AssociationId, cancellationToken)
+            ?? throw new NotFoundException("association.not_found", "Association was not found.");
+        association.RemoveDraftMember(request.MembershipId, clock.UtcNow);
+        await db.SaveChangesAsync(cancellationToken);
+        await audit.WriteAsync("MembershipRemoved", nameof(AssociationMembership), request.MembershipId.ToString(),
+            new { request.AssociationId }, null, cancellationToken);
+    }
+}
+
 public sealed record StartAssociationCommand(Guid AssociationId) : IRequest;
 public sealed class StartAssociationHandler(IApplicationDbContext db, IAssociationAccessService access, IClock clock, IAuditService audit)
     : IRequestHandler<StartAssociationCommand>

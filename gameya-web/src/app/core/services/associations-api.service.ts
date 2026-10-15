@@ -35,6 +35,9 @@ export class AssociationsApiService {
   changeShares(id: string, memberId: string, shareCount: number): Observable<void> {
     return this.http.patch<void>(`${this.url}/${id}/members/${memberId}/shares`, { shareCount });
   }
+  removeMember(id: string, memberId: string): Observable<void> {
+    return this.http.delete<void>(`${this.url}/${id}/members/${memberId}`);
+  }
   start(id: string): Observable<void> { return this.http.post<void>(`${this.url}/${id}/start`, {}); }
   pause(id: string): Observable<void> { return this.http.post<void>(`${this.url}/${id}/pause`, {}); }
   cancel(id: string): Observable<void> { return this.http.post<void>(`${this.url}/${id}/cancel`, {}); }

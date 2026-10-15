@@ -139,6 +139,50 @@ public sealed class InvitePaymentUserHandler(IIdentityService identity, ICurrent
         return id;
     }
 }
+public sealed record GetPaymentUsersQuery(string? Search, int Page = 1, int PageSize = 20)
+    : IRequest<PagedResult<PaymentUserDto>>;
+public sealed class GetPaymentUsersHandler(IIdentityService identity, ICurrentUser currentUser)
+    : IRequestHandler<GetPaymentUsersQuery, PagedResult<PaymentUserDto>>
+{
+    public Task<PagedResult<PaymentUserDto>> Handle(GetPaymentUsersQuery request,
+        CancellationToken cancellationToken) => identity.GetPaymentUsersAsync(
+        currentUser.UserId ?? throw new ForbiddenException(), currentUser.IsInRole(AppRoles.Admin),
+        request.Search, request.Page, request.PageSize, cancellationToken);
+}
+public sealed record GetPaymentUserInvitationsQuery(string? Search, int Page = 1, int PageSize = 20)
+    : IRequest<PagedResult<PaymentUserInvitationDto>>;
+public sealed class GetPaymentUserInvitationsHandler(IIdentityService identity, ICurrentUser currentUser)
+    : IRequestHandler<GetPaymentUserInvitationsQuery, PagedResult<PaymentUserInvitationDto>>
+{
+    public Task<PagedResult<PaymentUserInvitationDto>> Handle(GetPaymentUserInvitationsQuery request,
+        CancellationToken cancellationToken) => identity.GetPaymentUserInvitationsAsync(
+        currentUser.UserId ?? throw new ForbiddenException(), currentUser.IsInRole(AppRoles.Admin),
+        request.Search, request.Page, request.PageSize, cancellationToken);
+}
+public sealed record RevokePaymentUserInvitationCommand(Guid InvitationId) : IRequest;
+public sealed class RevokePaymentUserInvitationHandler(IIdentityService identity, ICurrentUser currentUser,
+    IAuditService audit) : IRequestHandler<RevokePaymentUserInvitationCommand>
+{
+    public async Task Handle(RevokePaymentUserInvitationCommand request, CancellationToken cancellationToken)
+    {
+        await identity.RevokePaymentUserInvitationAsync(currentUser.UserId ?? throw new ForbiddenException(),
+            currentUser.IsInRole(AppRoles.Admin), request.InvitationId, cancellationToken);
+        await audit.WriteAsync("PaymentUserInvitationRevoked", "PaymentUserInvitation",
+            request.InvitationId.ToString(), null, new { Revoked = true }, cancellationToken);
+    }
+}
+public sealed record DeactivatePaymentUserCommand(string PaymentUserId) : IRequest;
+public sealed class DeactivatePaymentUserHandler(IIdentityService identity, ICurrentUser currentUser,
+    IAuditService audit) : IRequestHandler<DeactivatePaymentUserCommand>
+{
+    public async Task Handle(DeactivatePaymentUserCommand request, CancellationToken cancellationToken)
+    {
+        await identity.DeactivatePaymentUserAsync(currentUser.UserId ?? throw new ForbiddenException(),
+            currentUser.IsInRole(AppRoles.Admin), request.PaymentUserId, cancellationToken);
+        await audit.WriteAsync("PaymentUserAccessRemoved", "ApplicationUser", request.PaymentUserId,
+            null, new { IsActive = false }, cancellationToken);
+    }
+}
 public sealed record SetPaymentUserAssociationsCommand(string PaymentUserId,
     IReadOnlyCollection<Guid> AssociationIds) : IRequest;
 public sealed class SetPaymentUserAssociationsValidator : AbstractValidator<SetPaymentUserAssociationsCommand>

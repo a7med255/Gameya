@@ -5,6 +5,11 @@ namespace Gameya.Application.DTOs;
 public sealed record AuthTokensDto(string AccessToken, DateTimeOffset AccessTokenExpiresAtUtc, string RefreshToken);
 public sealed record RegistrationResultDto(string UserId, bool RequiresEmailConfirmation);
 public sealed record GeneratedReportDto(byte[] Content, string ContentType, string FileName);
+public sealed record PaymentUserDto(string Id, string Email, string DisplayName, bool IsActive,
+    DateTimeOffset CreatedAtUtc, IReadOnlyCollection<Guid> AssociationIds);
+public sealed record PaymentUserInvitationDto(Guid Id, string Email, DateTimeOffset CreatedAtUtc,
+    DateTimeOffset ExpiresAtUtc, DateTimeOffset? AcceptedAtUtc, DateTimeOffset? RevokedAtUtc,
+    IReadOnlyCollection<Guid> AssociationIds, string Status);
 
 public sealed record PersonDto(Guid Id, string FullName, string PhoneNumber, string SubscriberCode, bool IsActive,
     DateTimeOffset CreatedAtUtc);
@@ -36,9 +41,9 @@ public sealed record PaymentDto(Guid Id, Guid PersonId, decimal Amount, PaymentM
 public sealed record PaymentAllocationDto(Guid AssociationId, Guid PeriodId, decimal Amount, DateOnly DueDate, int LateDays);
 public sealed record PaymentCreditDto(Guid AssociationId, decimal Amount);
 public sealed record PaymentPageDto(Guid PersonId, string FullName, string SubscriberCode,
-    IReadOnlyCollection<AccessibleAssociationDueDto> Associations, decimal TotalOutstanding);
+    IReadOnlyCollection<AccessibleAssociationDueDto> Associations, decimal AmountDueNow, decimal TotalRemaining);
 public sealed record AccessibleAssociationDueDto(Guid AssociationId, string AssociationName, decimal MonthlyContribution,
-    decimal OutstandingAmount, DateOnly? OldestUnpaidDueDate, decimal Credit, string PaymentStatus);
+    decimal AmountDueNow, decimal TotalRemaining, DateOnly? OldestUnpaidDueDate, decimal Credit, string PaymentStatus);
 public sealed record SettlementDto(Guid Id, Guid AssociationId, Guid MembershipId, decimal TotalRequired,
     decimal TotalPaid, decimal Balance, SettlementStatus Status);
 

@@ -80,6 +80,7 @@ internal static class LocalizationMessages
         ["person.invalid_phone"] = "Phone number is invalid.",
         ["person.invalid_subscriber_code"] = "Subscriber code is invalid.",
         ["person.required"] = "Person is required.",
+        ["person.active_membership"] = "The person cannot be deactivated while subscribed to a current association.",
         ["membership.invalid_kind"] = "Membership type is invalid.",
         ["membership.invalid_shares"] = "Share count is invalid.",
         ["payout.invalid_shares"] = "Payout share count is invalid.",
@@ -92,6 +93,7 @@ internal static class LocalizationMessages
         ["payout.reason_too_long"] = "The payout change reason is too long.",
         ["payment.invalid_amount"] = "Payment amount is invalid.",
         ["payment.invalid_method"] = "Payment method is invalid.",
+        ["payment.invalid_idempotency_key"] = "Payment request identifier is invalid.",
         ["payment.zero_amount"] = "Payment amount cannot be zero.",
         ["payment.adjustment_reason"] = "An adjustment reason is required.",
         ["payment.adjustment_entries_required"] = "Adjustment entries are required.",
@@ -108,7 +110,9 @@ internal static class LocalizationMessages
         ["auth.refresh_token_required"] = "Refresh token is required.",
         ["auth.invitation_token_required"] = "Invitation token is required.",
         ["auth.payment_user_required"] = "Payment user is required.",
-        ["auth.associations_required"] = "Association selection is required."
+        ["auth.associations_required"] = "Association selection is required.",
+        ["auth.invitation_not_found"] = "Invitation was not found.",
+        ["auth.invitation_already_accepted"] = "The invitation was already accepted; manage account access instead."
     };
 
     private static readonly IReadOnlyDictionary<string, string> Ar = new Dictionary<string, string>
@@ -125,7 +129,8 @@ internal static class LocalizationMessages
         ["auth.email_not_confirmed"] = "لازم تأكد البريد الإلكتروني الأول.",
         ["auth.invalid_refresh_token"] = "جلسة الدخول غير صالحة أو انتهت.",
         ["auth.refresh_token_reused"] = "تم إلغاء جلسة الدخول لحمايتك. سجل الدخول من جديد.",
-        ["auth.invalid_invitation"] = "الدعوة غير صالحة أو انتهت.",
+        ["auth.invalid_invitation"] = "الدعوة غير صالحة أو انتهت صلاحيتها.",
+        ["auth.invitation_revoked"] = "تم إلغاء رابط الدعوة.",
         ["auth.invalid_confirmation"] = "رابط تأكيد البريد غير صالح.",
         ["auth.name_required"] = "الاسم مطلوب.",
         ["auth.invalid_email"] = "البريد الإلكتروني غير صحيح.",
@@ -151,6 +156,7 @@ internal static class LocalizationMessages
         ["association.pause_from_active"] = "يمكن إيقاف الجمعية مؤقتًا وهي نشطة فقط.",
         ["association.resume_from_paused"] = "يمكن استكمال جمعية متوقفة مؤقتًا فقط.",
         ["association.complete_state"] = "لا يمكن إنهاء الجمعية في حالتها الحالية.",
+        ["association.completed"] = "لا يمكن تنفيذ العملية لأن الجمعية مكتملة.",
         ["association.open_periods"] = "لازم تقفل كل الفترات قبل إنهاء الجمعية.",
         ["association.closed"] = "الجمعية المقفولة لا تقبل تعديلات جديدة.",
         ["person.not_found"] = "الشخص غير موجود.",
@@ -161,12 +167,14 @@ internal static class LocalizationMessages
         ["person.invalid_phone"] = "رقم الموبايل غير صحيح.",
         ["person.invalid_subscriber_code"] = "كود المشترك غير صحيح.",
         ["person.required"] = "اختيار الشخص مطلوب.",
+        ["person.active_membership"] = "لا يمكن حذف العضو لأنه مشترك حاليًا في جمعية نشطة.",
         ["membership.not_found"] = "العضوية غير موجودة.",
         ["membership.duplicate"] = "الشخص عضو نشط بالفعل في الجمعية.",
         ["membership.invalid_kind"] = "نوع العضوية غير صحيح.",
         ["membership.invalid_shares"] = "عدد الأسهم غير صحيح.",
         ["membership.shares_immutable"] = "لا يمكن تغيير الأسهم بعد تشغيل الجمعية.",
         ["membership.not_active"] = "لا يمكن استبدال عضوية غير نشطة.",
+        ["membership.remove_after_start"] = "لا يمكن حذف العضو بعد بدء الجمعية. استخدم الاستبدال للحفاظ على التاريخ.",
         ["period.not_found"] = "فترة الجمعية غير موجودة.",
         ["payout.not_found"] = "موعد القبض غير موجود.",
         ["payout.invalid_shares"] = "عدد أسهم القبض غير صحيح.",
@@ -188,6 +196,8 @@ internal static class LocalizationMessages
         ["payment.no_accessible_associations"] = "لا توجد جمعيات متاحة لهذا الشخص.",
         ["payment.invalid_amount"] = "قيمة الدفعة غير صحيحة.",
         ["payment.invalid_method"] = "طريقة الدفع غير صحيحة.",
+        ["payment.underpaid"] = "المبلغ المدفوع أقل من المبلغ المستحق.",
+        ["payment.invalid_idempotency_key"] = "معرّف طلب الدفع غير صحيح.",
         ["payment.zero_amount"] = "قيمة الدفعة لا يمكن أن تكون صفرًا.",
         ["payment.credit_association_required"] = "اختار الجمعية اللي هيتسجل عليها الرصيد الزيادة.",
         ["payment.adjustment_reason"] = "سبب التصحيح مطلوب.",
@@ -202,7 +212,9 @@ internal static class LocalizationMessages
         ["replacement.share_mismatch"] = "إجمالي أسهم البدلاء لازم يساوي أسهم العضو القديم.",
         ["replacement.after_start"] = "الاستبدال متاح بعد تشغيل الجمعية فقط.",
         ["replacement.reason_too_long"] = "سبب الاستبدال أطول من المسموح.",
-        ["report.invalid_period"] = "سنة أو شهر التقرير غير صحيح."
+        ["report.invalid_period"] = "سنة أو شهر التقرير غير صحيح.",
+        ["auth.invitation_not_found"] = "الدعوة غير موجودة أو غير متاحة لحسابك.",
+        ["auth.invitation_already_accepted"] = "تم قبول الدعوة بالفعل. ألغِ وصول الحساب بدلًا من إلغاء الرابط."
     };
 
     public static bool IsArabic(HttpRequest request) => request.GetTypedHeaders().AcceptLanguage?.Any(x =>

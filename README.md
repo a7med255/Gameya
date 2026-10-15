@@ -1,6 +1,6 @@
 # Gameya Backend
 
-Gameya is a .NET 8 REST API for managing Egyptian rotating savings associations. It uses Clean Architecture, tactical DDD for financial workflows, CQRS with MediatR, SQL Server/EF Core, ASP.NET Core Identity, JWT access tokens with rotating refresh tokens, Hangfire, SMTP email, PDF reports, Serilog, FluentValidation, and Swagger.
+Gameya is a .NET 8 REST API for managing Egyptian rotating savings associations. It uses Clean Architecture, tactical DDD for financial workflows, CQRS with MediatR, SQL Server/EF Core, ASP.NET Core Identity, JWT access tokens with rotating refresh tokens, SMTP email, PDF reports, Serilog, FluentValidation, and Swagger.
 
 The repository also includes `gameya-web`, a standalone Angular 22 application with an Arabic Egyptian RTL interface, role-specific lazy routes, reactive forms, Signals/RxJS state, typed API clients, responsive mobile layouts, and Vitest coverage.
 
@@ -8,7 +8,7 @@ The repository also includes `gameya-web`, a standalone Angular 22 application w
 
 - `Gameya.Domain` — dependency-free aggregates, entities, value objects, rules, events, and exceptions.
 - `Gameya.Application` — commands, queries, validators, DTOs, pipeline behavior, and ports.
-- `Gameya.Infrastructure` — EF Core, SQL Server migrations, Identity, JWT, SMTP, PDF generation, audit, and Hangfire.
+- `Gameya.Infrastructure` — EF Core, SQL Server migrations, Identity, JWT, SMTP, PDF generation, and audit.
 - `Gameya.API` — controllers, authorization policies, Problem Details, security middleware, and composition root.
 - `Gameya.Tests` — unit, integration, persistence-invariant, and architecture tests.
 

@@ -36,6 +36,15 @@ public sealed class Person : AggregateRoot
         UpdatedAtUtc = now;
     }
 
+    public void UpdateDetails(string fullName, string phoneNumber, DateTimeOffset now)
+    {
+        SetName(fullName, now);
+        Guard.Against(string.IsNullOrWhiteSpace(phoneNumber), "person.phone_required", "Phone number is required.");
+        PhoneNumber = phoneNumber.Trim();
+        NormalizedPhoneNumber = NormalizePhone(PhoneNumber);
+        UpdatedAtUtc = now;
+    }
+
     public void Deactivate(DateTimeOffset now) { IsActive = false; UpdatedAtUtc = now; }
 
     public static string NormalizeName(string name) => string.Join(' ', name.Trim().ToUpperInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));

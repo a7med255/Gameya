@@ -31,10 +31,14 @@ public sealed class SendMonthlyReportValidator : AbstractValidator<SendMonthlyRe
         RuleFor(x => x.Month).InclusiveBetween(1, 12).WithErrorCode("report.invalid_period");
     }
 }
-public sealed class SendMonthlyReportHandler(IBackgroundJobScheduler jobs, ICurrentUser current)
+public sealed class SendMonthlyReportHandler(IIdempotentReportJob reportJob, ICurrentUser current)
     : IRequestHandler<SendMonthlyReportCommand, string>
 {
-    public Task<string> Handle(SendMonthlyReportCommand request, CancellationToken cancellationToken) =>
-        Task.FromResult(jobs.EnqueueMonthlyReport(current.UserId ?? throw new ForbiddenException(),
-            current.IsInRole(AppRoles.Admin), request.Year, request.Month));
+    public async Task<string> Handle(SendMonthlyReportCommand request, CancellationToken cancellationToken)
+    {
+        var executionKey = $"manual:{Guid.NewGuid():N}";
+        await reportJob.ExecuteAsync(executionKey, current.UserId ?? throw new ForbiddenException(),
+            current.IsInRole(AppRoles.Admin), request.Year, request.Month, cancellationToken);
+        return executionKey;
+    }
 }

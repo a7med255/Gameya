@@ -15,6 +15,60 @@ namespace Gameya.Tests.Integration;
 public sealed class PaymentWorkflowTests(GameyaApiFactory factory) : IClassFixture<GameyaApiFactory>
 {
     [Fact]
+    public async Task Payment_page_returns_only_amount_due_now_and_retries_are_idempotent()
+    {
+        var email = $"owner-due-now-{Guid.NewGuid():N}@example.com";
+        var person = new Person("Current Due Person", $"+207{Random.Shared.Next(10000000, 99999999)}",
+            SubscriberCode.Create("DUEN2345"), DateTimeOffset.UtcNow.AddMonths(-2));
+        Association association;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var owner = new ApplicationUser { UserName = email, Email = email, EmailConfirmed = true,
+                DisplayName = "Due Owner", CreatedAtUtc = DateTimeOffset.UtcNow };
+            Assert.True((await users.CreateAsync(owner, "Strong!Pass123")).Succeeded);
+            Assert.True((await users.AddToRoleAsync(owner, AppRoles.Owner)).Succeeded);
+            var currentMonth = new DateOnly(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+            var futureMonth = currentMonth.AddMonths(1);
+            association = new Association("Current Due", currentMonth, 2, 1_000m, owner.Id,
+                DateTimeOffset.UtcNow.AddMonths(-2));
+            association.SetPeriods([(currentMonth, new DateOnly(currentMonth.Year, currentMonth.Month, 10)),
+                (futureMonth, new DateOnly(futureMonth.Year, futureMonth.Month, 10))]);
+            var membership = association.AddMember(person.Id, 1m, MembershipKind.Paying,
+                DateTimeOffset.UtcNow.AddMonths(-1));
+            association.AddPayout(association.Periods.First().Id, PayoutRecipientType.Membership,
+                membership.Id, 1m, DateTimeOffset.UtcNow.AddMonths(-1));
+            association.AddPayout(association.Periods.Last().Id, PayoutRecipientType.ReserveSlot,
+                null, 1m, DateTimeOffset.UtcNow.AddMonths(-1));
+            association.Start(DateTimeOffset.UtcNow.AddDays(-1));
+            db.PeopleSet.Add(person); db.AssociationsSet.Add(association); await db.SaveChangesAsync();
+        }
+        var client = factory.CreateClient();
+        var login = await client.PostAsJsonAsync("/api/auth/login", new { email, password = "Strong!Pass123" });
+        login.EnsureSuccessStatusCode();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+            (await login.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accessToken").GetString());
+
+        var page = await client.GetFromJsonAsync<JsonElement>($"/api/payments/page/{person.Id}");
+        Assert.Equal(1_000m, page.GetProperty("amountDueNow").GetDecimal());
+        Assert.Equal(2_000m, page.GetProperty("totalRemaining").GetDecimal());
+
+        var idempotencyKey = Guid.NewGuid().ToString("N");
+        var request = new { personId = person.Id, amount = 1_000m, method = PaymentMethod.Cash, idempotencyKey };
+        var first = await client.PostAsJsonAsync("/api/payments", request);
+        var retry = await client.PostAsJsonAsync("/api/payments", request);
+        first.EnsureSuccessStatusCode(); retry.EnsureSuccessStatusCode();
+        var firstId = (await first.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        var retryId = (await retry.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        Assert.Equal(firstId, retryId);
+
+        await using var verifyScope = factory.Services.CreateAsyncScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        Assert.Equal(1, verifyDb.PaymentsSet.Count(x => x.IdempotencyKey == idempotencyKey));
+    }
+
+    [Fact]
     public async Task Payments_allocate_oldest_first_and_keep_excess_as_association_credit()
     {
         var email = $"owner-payments-{Guid.NewGuid():N}@example.com";
@@ -129,7 +183,7 @@ public sealed class PaymentWorkflowTests(GameyaApiFactory factory) : IClassFixtu
 
         var page = await client.GetFromJsonAsync<JsonElement>($"/api/payments/page/{secondPerson.Id}");
         var due = Assert.Single(page.GetProperty("associations").EnumerateArray());
-        Assert.Equal(1_000m, due.GetProperty("outstandingAmount").GetDecimal());
+        Assert.Equal(1_000m, due.GetProperty("amountDueNow").GetDecimal());
 
         var secondPayment = await client.PostAsJsonAsync("/api/payments", new
         {

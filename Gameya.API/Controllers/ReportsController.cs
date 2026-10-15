@@ -13,5 +13,6 @@ public sealed class ReportsController(ISender sender) : ControllerBase
     public async Task<IActionResult> Get([FromQuery] int year, [FromQuery] int month, CancellationToken cancellationToken)
     { var report = await sender.Send(new GetMonthlyReportQuery(year, month), cancellationToken); return File(report.Content, report.ContentType, report.FileName); }
     [HttpPost("send")]
-    public async Task<IActionResult> Send([FromBody] SendMonthlyReportCommand command, CancellationToken cancellationToken) => Accepted(new { jobId = await sender.Send(command, cancellationToken) });
+    public async Task<IActionResult> Send([FromBody] SendMonthlyReportCommand command, CancellationToken cancellationToken) =>
+        Ok(new { executionId = await sender.Send(command, cancellationToken) });
 }

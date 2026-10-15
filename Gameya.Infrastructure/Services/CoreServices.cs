@@ -113,6 +113,16 @@ public sealed class PersonAccessService(ApplicationDbContext db, ICurrentUser cu
             NormalizedPhone = normalizedPhone, GrantedAtUtc = clock.UtcNow
         }, cancellationToken);
     }
+
+    public async Task UpdateOwnerAccessAsync(string ownerId, Guid personId, string normalizedName,
+        string normalizedPhone, CancellationToken cancellationToken)
+    {
+        var access = await db.OwnerPersonAccesses.SingleOrDefaultAsync(
+            x => x.OwnerId == ownerId && x.PersonId == personId, cancellationToken);
+        if (access is null) return;
+        access.NormalizedName = normalizedName;
+        access.NormalizedPhone = normalizedPhone;
+    }
 }
 
 public sealed class AuditService(ApplicationDbContext db, ICurrentUser current, IClock clock) : IAuditService

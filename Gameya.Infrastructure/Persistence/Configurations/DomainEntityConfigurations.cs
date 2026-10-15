@@ -109,7 +109,10 @@ public sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
     {
         b.ToTable("Payments"); b.HasKey(x => x.Id); b.Property(x => x.Amount).HasPrecision(18, 2);
         b.Property(x => x.RecordedByUserId).HasMaxLength(450).IsRequired(); b.Property(x => x.RowVersion).IsRowVersion();
+        b.Property(x => x.IdempotencyKey).HasMaxLength(100);
         b.HasIndex(x => new { x.PersonId, x.PaidAtUtc }); b.HasIndex(x => x.AdjustsPaymentId);
+        b.HasIndex(x => new { x.RecordedByUserId, x.IdempotencyKey }).IsUnique()
+            .HasFilter("[IdempotencyKey] IS NOT NULL");
         b.HasOne<Person>().WithMany().HasForeignKey(x => x.PersonId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.RecordedByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<Payment>().WithMany().HasForeignKey(x => x.AdjustsPaymentId).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
@@ -185,7 +188,9 @@ public sealed class IdentitySupportConfiguration : IEntityTypeConfiguration<Refr
     public void Configure(EntityTypeBuilder<PaymentUserInvitation> b)
     {
         b.ToTable("PaymentUserInvitations"); b.HasKey(x => x.Id); b.Property(x => x.Email).HasMaxLength(256); b.Property(x => x.TokenHash).HasMaxLength(64);
-        b.HasIndex(x => x.TokenHash).IsUnique(); b.HasMany(x => x.Associations).WithOne().HasForeignKey(x => x.InvitationId).OnDelete(DeleteBehavior.Cascade);
+        b.Property(x => x.RevokedByUserId).HasMaxLength(450);
+        b.HasIndex(x => x.TokenHash).IsUnique(); b.HasIndex(x => new { x.OwnerId, x.CreatedAtUtc });
+        b.HasMany(x => x.Associations).WithOne().HasForeignKey(x => x.InvitationId).OnDelete(DeleteBehavior.Cascade);
         b.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.OwnerId).OnDelete(DeleteBehavior.Restrict);
     }
     public void Configure(EntityTypeBuilder<InvitationAssociation> b)

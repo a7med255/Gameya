@@ -31,7 +31,7 @@ import { StatusBadgeComponent } from '../../shared/ui/status-badge.component';
 export class AssociationsListComponent {
   private readonly api = inject(AssociationsApiService);
   protected readonly search = new FormControl('', { nonNullable: true }); protected readonly status = new FormControl<AssociationStatus | ''>('', { nonNullable: true });
-  protected readonly result = signal<PagedResult<AssociationSummaryDto>>({ items: [], page: 1, pageSize: 20, totalCount: 0 }); protected readonly loading = signal(true); protected readonly error = signal(false);
+  protected readonly result = signal<PagedResult<AssociationSummaryDto>>({ items: [], page: 1, pageNumber: 1, pageSize: 20, totalCount: 0, totalPages: 0, hasNext: false, hasPrevious: false }); protected readonly loading = signal(true); protected readonly error = signal(false);
   protected readonly statuses = Object.entries(ASSOCIATION_STATUS_LABELS).map(([value, label]) => ({ value: value as AssociationStatus, label }));
   constructor() { this.search.valueChanges.pipe(startWith(''), debounceTime(350), distinctUntilChanged(), switchMap(() => this.query(1))).subscribe(); this.status.valueChanges.pipe(distinctUntilChanged()).subscribe(() => this.loadPage(1)); }
   protected totalPages(): number { return Math.max(1, Math.ceil(this.result().totalCount / this.result().pageSize)); }

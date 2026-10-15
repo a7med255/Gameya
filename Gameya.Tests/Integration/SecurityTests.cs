@@ -154,6 +154,34 @@ public sealed class SecurityTests(GameyaApiFactory factory) : IClassFixture<Game
         Assert.Contains("البيانات", json.GetProperty("detail").GetString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task People_search_is_server_side_by_phone_and_pagination_returns_navigation_metadata()
+    {
+        var email = $"owner-pagination-{Guid.NewGuid():N}@example.com";
+        await CreateOwnerAsync(email);
+        var client = await LoginOwnerAsync(email);
+        var uniquePhone = $"+209{Random.Shared.Next(10000000, 99999999)}";
+        foreach (var item in new[]
+                 {
+                     new { fullName = $"Paged A {Guid.NewGuid():N}", phoneNumber = uniquePhone },
+                     new { fullName = $"Paged B {Guid.NewGuid():N}", phoneNumber = $"+208{Random.Shared.Next(10000000, 99999999)}" },
+                     new { fullName = $"Paged C {Guid.NewGuid():N}", phoneNumber = $"+206{Random.Shared.Next(10000000, 99999999)}" }
+                 })
+            (await client.PostAsJsonAsync("/api/people", item)).EnsureSuccessStatusCode();
+
+        var page = await client.GetFromJsonAsync<JsonElement>("/api/people?page=1&pageSize=2");
+        Assert.Equal(2, page.GetProperty("items").GetArrayLength());
+        Assert.True(page.GetProperty("totalPages").GetInt32() >= 2);
+        Assert.True(page.GetProperty("hasNext").GetBoolean());
+        Assert.False(page.GetProperty("hasPrevious").GetBoolean());
+        Assert.Equal(1, page.GetProperty("pageNumber").GetInt32());
+
+        var search = await client.GetFromJsonAsync<JsonElement>(
+            $"/api/people?search={Uri.EscapeDataString(uniquePhone.Replace(" ", string.Empty, StringComparison.Ordinal))}&page=1&pageSize=20");
+        var match = Assert.Single(search.GetProperty("items").EnumerateArray());
+        Assert.Equal(uniquePhone, match.GetProperty("phoneNumber").GetString());
+    }
+
     private static Association NewAssociation(string name)
     {
         var association = new Association(name, new DateOnly(2026, 1, 1), 1, 1_000m, "owner", DateTimeOffset.UtcNow);

@@ -70,6 +70,17 @@ public sealed class Association : AggregateRoot
         UpdatedAtUtc = now;
     }
 
+    public void RemoveDraftMember(Guid membershipId, DateTimeOffset now)
+    {
+        Guard.Against(Status != AssociationStatus.Draft, "membership.remove_after_start",
+            "A member can only be removed while the association is a draft.");
+        var member = _memberships.SingleOrDefault(x => x.Id == membershipId);
+        Guard.Against(member is null, "membership.not_found", "Membership was not found.");
+        _payouts.RemoveAll(x => x.MembershipId == membershipId || x.BeneficiaryPersonId == member!.PersonId);
+        _memberships.Remove(member!);
+        UpdatedAtUtc = now;
+    }
+
     public void SetPeriods(IEnumerable<(DateOnly PeriodDate, DateOnly DueDate)> dates)
     {
         Guard.Against(Status != AssociationStatus.Draft, "association.periods_immutable", "Periods can only be generated while the association is in draft.");

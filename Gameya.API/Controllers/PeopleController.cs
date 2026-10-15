@@ -18,7 +18,15 @@ public sealed class PeopleController(ISender sender) : ControllerBase
     [HttpGet("{id:guid}")]
     [Authorize(Policy = AppPolicies.OwnerOrAdmin)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken) => Ok(await sender.Send(new GetPersonProfileQuery(id), cancellationToken));
+    [HttpPut("{id:guid}"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
+    public async Task<IActionResult> Update(Guid id, UpdatePersonRequest request, CancellationToken cancellationToken) =>
+        Ok(await sender.Send(new UpdatePersonCommand(id, request.FullName, request.PhoneNumber), cancellationToken));
+    [HttpDelete("{id:guid}"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
+    public async Task<IActionResult> Deactivate(Guid id, CancellationToken cancellationToken)
+    { await sender.Send(new DeactivatePersonCommand(id), cancellationToken); return NoContent(); }
     [HttpGet("{id:guid}/financial-summary")]
     [Authorize(Policy = AppPolicies.OwnerOrAdmin)]
     public async Task<IActionResult> FinancialSummary(Guid id, CancellationToken cancellationToken) => Ok(await sender.Send(new GetPersonProfileQuery(id), cancellationToken));
 }
+
+public sealed record UpdatePersonRequest(string FullName, string PhoneNumber);

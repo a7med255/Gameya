@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { API_ENDPOINTS } from '../constants/api-endpoints';
-import { CreatePersonRequest, PagedResult, PersonDto, PersonProfileDto } from '../models/api.models';
+import { CreatePersonRequest, PagedResult, PersonDto, PersonProfileDto, UpdatePersonRequest } from '../models/api.models';
 
 @Injectable({ providedIn: 'root' })
 export class PeopleApiService {
@@ -22,5 +22,13 @@ export class PeopleApiService {
 
   profile(id: string): Observable<PersonProfileDto> {
     return this.http.get<PersonProfileDto>(`${this.url}/${id}`);
+  }
+
+  update(id: string, request: UpdatePersonRequest): Observable<PersonDto> {
+    return this.http.put<PersonDto>(`${this.url}/${id}`, request);
+  }
+
+  deactivate(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.url}/${id}`);
   }
 }

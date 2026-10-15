@@ -71,15 +71,86 @@ public sealed class GetPeopleHandler(IApplicationDbContext db, ICurrentUser curr
             var candidate = search.ToUpperInvariant();
             if (candidate.Length == SubscriberCode.Length && candidate.All(c => c is >= 'A' and <= 'Z' or >= '0' and <= '9'))
                 subscriberCode = SubscriberCode.Create(candidate);
-            query = query.Where(x => x.FullName.Contains(search) || subscriberCode != null && x.SubscriberCode == subscriberCode);
+            var normalizedPhone = Person.NormalizePhone(search);
+            query = query.Where(x => x.FullName.Contains(search) || x.NormalizedPhoneNumber.Contains(normalizedPhone)
+                || subscriberCode != null && x.SubscriberCode == subscriberCode);
         }
         var page = Math.Max(1, request.Page);
         var size = Math.Clamp(request.PageSize, 1, 100);
         var total = await query.CountAsync(cancellationToken);
-        var people = await query.OrderBy(x => x.FullName).Skip((page - 1) * size).Take(size).ToListAsync(cancellationToken);
-        var items = people.Select(x => new PersonDto(x.Id, x.FullName, x.PhoneNumber, x.SubscriberCode.Value,
-            x.IsActive, x.CreatedAtUtc)).ToList();
+        var items = await query.OrderBy(x => x.FullName).Skip((page - 1) * size).Take(size)
+            .Select(x => new PersonDto(x.Id, x.FullName, x.PhoneNumber, x.SubscriberCode.Value,
+                x.IsActive, x.CreatedAtUtc)).ToListAsync(cancellationToken);
         return new PagedResult<PersonDto>(items, page, size, total);
+    }
+}
+
+public sealed record UpdatePersonCommand(Guid PersonId, string FullName, string PhoneNumber) : IRequest<PersonDto>;
+public sealed class UpdatePersonValidator : AbstractValidator<UpdatePersonCommand>
+{
+    public UpdatePersonValidator()
+    {
+        RuleFor(x => x.PersonId).NotEmpty().WithErrorCode("person.not_found");
+        RuleFor(x => x.FullName).NotEmpty().MaximumLength(200).WithErrorCode("person.name_required");
+        RuleFor(x => x.PhoneNumber).NotEmpty().MaximumLength(30).Matches("^[0-9+ ]+$")
+            .WithErrorCode("person.invalid_phone");
+    }
+}
+public sealed class UpdatePersonHandler(IApplicationDbContext db, ICurrentUser current,
+    IPersonAccessService personAccess, IClock clock, IAuditService audit)
+    : IRequestHandler<UpdatePersonCommand, PersonDto>
+{
+    public async Task<PersonDto> Handle(UpdatePersonCommand request, CancellationToken cancellationToken)
+    {
+        await personAccess.EnsureAccessAsync(request.PersonId, cancellationToken);
+        var actorId = current.UserId ?? throw new ForbiddenException();
+        var accessibleIds = personAccess.GetAccessiblePersonIds(actorId, current.IsInRole(AppRoles.Admin), true);
+        var normalizedName = Person.NormalizeName(request.FullName);
+        var normalizedPhone = Person.NormalizePhone(request.PhoneNumber);
+        if (await db.People.AnyAsync(x => x.Id != request.PersonId && accessibleIds.Contains(x.Id)
+                && x.NormalizedFullName == normalizedName, cancellationToken))
+            throw new ConflictException("person.duplicate_name", "A person with the same normalized name already exists.");
+        if (await db.People.AnyAsync(x => x.Id != request.PersonId && accessibleIds.Contains(x.Id)
+                && x.NormalizedPhoneNumber == normalizedPhone, cancellationToken))
+            throw new ConflictException("person.duplicate_phone", "Phone number already exists.");
+
+        var person = await db.FindAsync<Person>(request.PersonId, cancellationToken)
+            ?? throw new NotFoundException("person.not_found", "Person was not found.");
+        var oldValues = new { person.FullName, person.PhoneNumber };
+        person.UpdateDetails(request.FullName, request.PhoneNumber, clock.UtcNow);
+        await personAccess.UpdateOwnerAccessAsync(actorId, person.Id, person.NormalizedFullName,
+            person.NormalizedPhoneNumber, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await audit.WriteAsync("PersonUpdated", nameof(Person), person.Id.ToString(), oldValues,
+            new { person.FullName, person.PhoneNumber }, cancellationToken);
+        return new PersonDto(person.Id, person.FullName, person.PhoneNumber, person.SubscriberCode.Value,
+            person.IsActive, person.CreatedAtUtc);
+    }
+}
+
+public sealed record DeactivatePersonCommand(Guid PersonId) : IRequest;
+public sealed class DeactivatePersonHandler(IApplicationDbContext db, IPersonAccessService personAccess,
+    IClock clock, IAuditService audit) : IRequestHandler<DeactivatePersonCommand>
+{
+    public async Task Handle(DeactivatePersonCommand request, CancellationToken cancellationToken)
+    {
+        await personAccess.EnsureAccessAsync(request.PersonId, cancellationToken);
+        var hasCurrentMembership = await db.Memberships.AsNoTracking()
+            .Where(x => x.PersonId == request.PersonId && x.Status == Domain.Enums.MembershipStatus.Active)
+            .Join(db.Associations.AsNoTracking().Where(x => x.Status == Domain.Enums.AssociationStatus.Draft
+                    || x.Status == Domain.Enums.AssociationStatus.Active || x.Status == Domain.Enums.AssociationStatus.Paused),
+                membership => membership.AssociationId, association => association.Id, (_, _) => 1)
+            .AnyAsync(cancellationToken);
+        if (hasCurrentMembership)
+            throw new ConflictException("person.active_membership",
+                "The person cannot be deactivated while subscribed to a current association.");
+        var person = await db.FindAsync<Person>(request.PersonId, cancellationToken)
+            ?? throw new NotFoundException("person.not_found", "Person was not found.");
+        if (!person.IsActive) return;
+        person.Deactivate(clock.UtcNow);
+        await db.SaveChangesAsync(cancellationToken);
+        await audit.WriteAsync("PersonDeactivated", nameof(Person), person.Id.ToString(),
+            new { IsActive = true }, new { IsActive = false }, cancellationToken);
     }
 }
 

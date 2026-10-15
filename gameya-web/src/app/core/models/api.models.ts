@@ -12,8 +12,12 @@ export type SettlementStatus = 'Pending' | 'Completed';
 export interface PagedResult<T> {
   items: readonly T[];
   page: number;
+  pageNumber: number;
   pageSize: number;
   totalCount: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrevious: boolean;
 }
 
 export interface AuthTokensDto {
@@ -177,7 +181,8 @@ export interface AccessibleAssociationDueDto {
   associationId: string;
   associationName: string;
   monthlyContribution: number;
-  outstandingAmount: number;
+  amountDueNow: number;
+  totalRemaining: number;
   oldestUnpaidDueDate: string | null;
   credit: number;
   paymentStatus: 'Paid' | 'Outstanding' | 'Upcoming';
@@ -188,7 +193,8 @@ export interface PaymentPageDto {
   fullName: string;
   subscriberCode: string;
   associations: readonly AccessibleAssociationDueDto[];
-  totalOutstanding: number;
+  amountDueNow: number;
+  totalRemaining: number;
 }
 
 export interface SettlementDto {
@@ -215,6 +221,7 @@ export interface RegisterRequest { name: string; email: string; password: string
 export interface LoginRequest { email: string; password: string; }
 export interface ParticipantLoginRequest { phoneNumber: string; subscriberCode: string; }
 export interface CreatePersonRequest { fullName: string; phoneNumber: string; }
+export interface UpdatePersonRequest { fullName: string; phoneNumber: string; }
 export interface CreateAssociationRequest { name: string; startDate: string; numberOfMonths: number; monthlyContribution: number; }
 export interface AddMemberRequest { personId: string; shareCount: number; kind: MembershipKind; }
 export interface AddPayoutRequest { periodId: string; recipientType: PayoutRecipientType; membershipId: string | null; shareCount: number; }
@@ -245,9 +252,28 @@ export interface RecordPaymentRequest {
   personId: string;
   amount: number;
   method: PaymentMethod;
-  associationIds: readonly string[] | null;
-  creditAssociationId: string | null;
+  idempotencyKey: string;
+}
+
+export type PaymentUserInvitationStatus = 'Active' | 'Accepted' | 'Revoked' | 'Expired';
+export interface PaymentUserDto {
+  id: string;
+  email: string;
+  displayName: string;
+  isActive: boolean;
+  createdAtUtc: string;
+  associationIds: readonly string[];
+}
+export interface PaymentUserInvitationDto {
+  id: string;
+  email: string;
+  createdAtUtc: string;
+  expiresAtUtc: string;
+  acceptedAtUtc: string | null;
+  revokedAtUtc: string | null;
+  associationIds: readonly string[];
+  status: PaymentUserInvitationStatus;
 }
 export interface InvitePaymentUserRequest { email: string; associationIds: readonly string[]; }
-export interface SendReportResult { jobId: string; }
+export interface SendReportResult { executionId: string; }
 export interface CreatedId { id: string; }

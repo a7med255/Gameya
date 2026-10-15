@@ -34,11 +34,16 @@ public sealed class GameyaApiFactory : WebApplicationFactory<Program>
 
 public sealed class FakeEmailService : IEmailService
 {
-    public int SentCount { get; private set; }
+    private readonly System.Collections.Concurrent.ConcurrentQueue<SentEmail> _messages = new();
+    public int SentCount => _messages.Count;
+    public IReadOnlyCollection<SentEmail> Messages => _messages.ToArray();
     public Task SendAsync(string recipient, string subject, string htmlBody, byte[]? attachment,
         string? attachmentName, CancellationToken cancellationToken)
     {
-        SentCount++;
+        _messages.Enqueue(new SentEmail(recipient, subject, htmlBody, attachment, attachmentName));
         return Task.CompletedTask;
     }
 }
+
+public sealed record SentEmail(string Recipient, string Subject, string HtmlBody, byte[]? Attachment,
+    string? AttachmentName);

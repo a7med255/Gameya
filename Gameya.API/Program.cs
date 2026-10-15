@@ -8,7 +8,6 @@ using Gameya.Application;
 using Gameya.Application.Common;
 using Gameya.Infrastructure;
 using Gameya.Infrastructure.Persistence;
-using Hangfire;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
@@ -68,7 +67,25 @@ builder.Services.AddSwaggerGen(options =>
 var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(options => options.AddPolicy("Angular", policy =>
 {
-    if (origins.Length != 0) policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod();
+    if (builder.Environment.IsDevelopment())
+    {
+        policy.SetIsOriginAllowed(origin =>
+            {
+                if (string.IsNullOrWhiteSpace(origin)) return false;
+                if (Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+                {
+                    return uri.Host is "localhost" or "127.0.0.1";
+                }
+                return false;
+            })
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    }
+    else if (origins.Length != 0)
+    {
+        policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod();
+    }
 }));
 builder.Services.AddRateLimiter(options =>
 {
@@ -92,21 +109,25 @@ app.UseForwardedHeaders();
 app.UseSerilogRequestLogging(options =>
     options.MessageTemplate = "HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {Elapsed:0.0000} ms");
 app.UseMiddleware<ExceptionHandlingMiddleware>();
-if (!app.Environment.IsDevelopment()) { app.UseHsts(); }
-//if (app.Environment.IsDevelopment()) {
-    app.UseSwagger(); 
-    app.UseSwaggerUI();
-//}
-app.UseHttpsRedirection();
+
+app.UseCors("Angular");
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+    app.UseHttpsRedirection();
+}
+
+app.UseSwagger(); 
+app.UseSwaggerUI();
+
 app.Use(async (context, next) =>
 {
     context.Response.Headers.XContentTypeOptions = "nosniff";
     context.Response.Headers.XFrameOptions = "DENY";
-    context.Response.Headers.ContentSecurityPolicy = "default-src 'none'; frame-ancestors 'none'";
     context.Response.Headers["Referrer-Policy"] = "no-referrer";
     await next();
 });
-app.UseCors("Angular");
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -116,17 +137,6 @@ await app.Services.InitializeDatabaseAsync(
     app.Configuration,
     app.Environment,
     app.Lifetime.ApplicationStopping);
-
-if (!app.Configuration.GetValue<bool>("Testing:UseInMemoryDatabase"))
-{
-    var recurringJobManager =
-        app.Services.GetRequiredService<IRecurringJobManager>();
-
-    recurringJobManager.AddOrUpdate<Gameya.Application.Abstractions.IMonthlyReportCoordinator>(
-        "gameya-monthly-owner-reports",
-        x => x.SendPreviousMonthAsync(CancellationToken.None),
-        "0 6 1 * *");
-}
 
 app.Run();
 
