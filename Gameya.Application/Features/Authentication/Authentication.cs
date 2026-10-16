@@ -2,6 +2,7 @@ using FluentValidation;
 using Gameya.Application.Abstractions;
 using Gameya.Application.Common;
 using Gameya.Application.DTOs;
+using Gameya.Domain.Entities;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -105,7 +106,8 @@ public sealed class ParticipantLoginValidator : AbstractValidator<ParticipantLog
     public ParticipantLoginValidator()
     {
         RuleFor(x => x.PhoneNumber).NotEmpty().WithErrorCode("person.phone_required");
-        RuleFor(x => x.PhoneNumber).MaximumLength(30).WithErrorCode("person.invalid_phone");
+        RuleFor(x => x.PhoneNumber).MaximumLength(30).Must(Person.IsValidEgyptianMobile)
+            .WithErrorCode("person.invalid_phone");
         RuleFor(x => x.SubscriberCode).NotEmpty().Matches("^[A-Za-z0-9]{8}$").WithErrorCode("person.invalid_subscriber_code");
     }
 }
@@ -115,7 +117,8 @@ public sealed class ParticipantLoginHandler(IApplicationDbContext db, IIdentityS
     public async Task<AuthTokensDto> Handle(ParticipantLoginCommand request, CancellationToken cancellationToken)
     {
         var code = request.SubscriberCode.Trim().ToUpperInvariant();
-        var person = await db.People.AsNoTracking().SingleOrDefaultAsync(x => x.PhoneNumber == request.PhoneNumber.Trim()
+        var variants = Person.PhoneVariants(request.PhoneNumber);
+        var person = await db.People.AsNoTracking().SingleOrDefaultAsync(x => variants.Contains(x.NormalizedPhoneNumber)
             && x.IsActive, cancellationToken);
         if (person is null || !string.Equals(person.SubscriberCode.Value, code, StringComparison.Ordinal))
             throw new AuthenticationException("auth.invalid_participant_credentials", "Invalid participant credentials.");

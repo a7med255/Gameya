@@ -8,8 +8,8 @@ export function formatDate(value: string | Date | null | undefined, includeTime 
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
   return new Intl.DateTimeFormat('ar-EG', includeTime
-    ? { dateStyle: 'medium', timeStyle: 'short' }
-    : { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
+    ? { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Cairo' }
+    : { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Cairo' }).format(date);
 }
 
 export function safePercent(part: number, total: number): number {

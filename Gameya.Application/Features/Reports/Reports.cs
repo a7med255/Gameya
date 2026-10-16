@@ -42,3 +42,21 @@ public sealed class SendMonthlyReportHandler(IIdempotentReportJob reportJob, ICu
         return executionKey;
     }
 }
+
+public sealed record GetAssociationReportQuery(Guid AssociationId) : IRequest<GeneratedReportDto>;
+public sealed class GetAssociationReportHandler(IReportGenerator reports, ICurrentUser current)
+    : IRequestHandler<GetAssociationReportQuery, GeneratedReportDto>
+{
+    public Task<GeneratedReportDto> Handle(GetAssociationReportQuery request, CancellationToken cancellationToken) =>
+        reports.GenerateAssociationAsync(current.UserId ?? throw new ForbiddenException(),
+            current.IsInRole(AppRoles.Admin), request.AssociationId, cancellationToken);
+}
+
+public sealed record SendAssociationReportCommand(Guid AssociationId) : IRequest;
+public sealed class SendAssociationReportHandler(IReportDeliveryService delivery, ICurrentUser current)
+    : IRequestHandler<SendAssociationReportCommand>
+{
+    public Task Handle(SendAssociationReportCommand request, CancellationToken cancellationToken) =>
+        delivery.SendAssociationAsync(current.UserId ?? throw new ForbiddenException(),
+            current.IsInRole(AppRoles.Admin), request.AssociationId, cancellationToken);
+}

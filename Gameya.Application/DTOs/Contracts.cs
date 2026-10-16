@@ -8,7 +8,7 @@ public sealed record GeneratedReportDto(byte[] Content, string ContentType, stri
 public sealed record PaymentUserDto(string Id, string Email, string DisplayName, bool IsActive,
     DateTimeOffset CreatedAtUtc, IReadOnlyCollection<Guid> AssociationIds);
 public sealed record PaymentUserInvitationDto(Guid Id, string Email, DateTimeOffset CreatedAtUtc,
-    DateTimeOffset ExpiresAtUtc, DateTimeOffset? AcceptedAtUtc, DateTimeOffset? RevokedAtUtc,
+    DateTimeOffset? ExpiresAtUtc, DateTimeOffset? AcceptedAtUtc, DateTimeOffset? RevokedAtUtc,
     IReadOnlyCollection<Guid> AssociationIds, string Status);
 
 public sealed record PersonDto(Guid Id, string FullName, string PhoneNumber, string SubscriberCode, bool IsActive,
@@ -40,8 +40,17 @@ public sealed record PaymentDto(Guid Id, Guid PersonId, decimal Amount, PaymentM
     PaymentEntryType EntryType, IReadOnlyCollection<PaymentAllocationDto> Allocations, IReadOnlyCollection<PaymentCreditDto> Credits);
 public sealed record PaymentAllocationDto(Guid AssociationId, Guid PeriodId, decimal Amount, DateOnly DueDate, int LateDays);
 public sealed record PaymentCreditDto(Guid AssociationId, decimal Amount);
+public sealed record PaymentListAllocationDto(Guid AssociationId, string AssociationName, Guid PeriodId,
+    int PeriodNumber, decimal Amount, DateOnly DueDate, int LateDays);
+public sealed record PaymentListItemDto(Guid Id, Guid PersonId, string PayerName, string RecordedByUserId,
+    decimal Amount, PaymentMethod Method, DateTimeOffset PaidAtUtc, PaymentEntryType EntryType,
+    Guid? AdjustsPaymentId, IReadOnlyCollection<PaymentListAllocationDto> Allocations,
+    IReadOnlyCollection<PaymentCreditDto> Credits);
+public sealed record PaymentDueItemDto(Guid AssociationId, string AssociationName, Guid PeriodId,
+    int PeriodNumber, DateOnly DueDate, decimal Amount);
 public sealed record PaymentPageDto(Guid PersonId, string FullName, string SubscriberCode,
-    IReadOnlyCollection<AccessibleAssociationDueDto> Associations, decimal AmountDueNow, decimal TotalRemaining);
+    IReadOnlyCollection<AccessibleAssociationDueDto> Associations, IReadOnlyCollection<PaymentDueItemDto> DueItems,
+    decimal PreviousOverdue, decimal CurrentDue, decimal AmountDueNow, decimal TotalRemaining);
 public sealed record AccessibleAssociationDueDto(Guid AssociationId, string AssociationName, decimal MonthlyContribution,
     decimal AmountDueNow, decimal TotalRemaining, DateOnly? OldestUnpaidDueDate, decimal Credit, string PaymentStatus);
 public sealed record SettlementDto(Guid Id, Guid AssociationId, Guid MembershipId, decimal TotalRequired,

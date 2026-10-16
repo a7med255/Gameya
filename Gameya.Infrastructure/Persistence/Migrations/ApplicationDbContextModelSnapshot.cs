@@ -740,7 +740,7 @@ namespace Gameya.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
-                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                    b.Property<DateTimeOffset?>("ExpiresAtUtc")
                         .HasColumnType("datetimeoffset");
 
                     b.Property<string>("OwnerId")

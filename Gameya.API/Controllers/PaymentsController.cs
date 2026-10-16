@@ -10,9 +10,13 @@ namespace Gameya.API.Controllers;
 public sealed class PaymentsController(ISender sender) : ControllerBase
 {
     [HttpGet]
-    public async Task<IActionResult> List([FromQuery] Guid? personId, [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default) =>
-        Ok(await sender.Send(new GetPaymentsQuery(personId, page, pageSize), cancellationToken));
+    public async Task<IActionResult> List([FromQuery] Guid? personId, [FromQuery] DateOnly? fromDate,
+        [FromQuery] DateOnly? toDate, [FromQuery] Gameya.Domain.Enums.PaymentMethod? method,
+        [FromQuery] Guid? associationId, [FromQuery] int? periodNumber,
+        [FromQuery] Gameya.Domain.Enums.PaymentEntryType? entryType, [FromQuery] string? payerSearch,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default) =>
+        Ok(await sender.Send(new GetPaymentsQuery(personId, fromDate, toDate, method, associationId,
+            periodNumber, entryType, payerSearch, page, pageSize), cancellationToken));
     [HttpPost]
     public async Task<IActionResult> Record(RecordPaymentCommand command, CancellationToken cancellationToken)
     { var result = await sender.Send(command, cancellationToken); return CreatedAtAction(nameof(Get), new { id = result.Id }, result); }

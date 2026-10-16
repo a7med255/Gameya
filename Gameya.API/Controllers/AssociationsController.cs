@@ -49,6 +49,9 @@ public sealed class AssociationsController(ISender sender) : ControllerBase
     public async Task<IActionResult> Pause(Guid id, CancellationToken cancellationToken) { await sender.Send(new PauseAssociationCommand(id), cancellationToken); return NoContent(); }
     [HttpPost("{id:guid}/cancel"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
     public async Task<IActionResult> Cancel(Guid id, CancellationToken cancellationToken) { await sender.Send(new CancelAssociationCommand(id), cancellationToken); return NoContent(); }
+    [HttpPost("bulk-cancel"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
+    public async Task<IActionResult> BulkCancel(BulkCancelRequest request, CancellationToken cancellationToken)
+    { await sender.Send(new BulkCancelAssociationsCommand(request.Ids), cancellationToken); return NoContent(); }
     [HttpPost("{id:guid}/resume")]
     public async Task<IActionResult> Resume(Guid id, CancellationToken cancellationToken) { await sender.Send(new ResumeAssociationCommand(id), cancellationToken); return NoContent(); }
     [HttpPost("{id:guid}/periods/{periodId:guid}/close"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
@@ -85,6 +88,7 @@ public sealed record AddPayoutRequest(Guid PeriodId, PayoutRecipientType Recipie
 public sealed record MovePayoutRequest(Guid PeriodId, string? Reason);
 public sealed record ReserveBeneficiaryRequest(Guid PersonId);
 public sealed record ReplaceMemberRequest(IReadOnlyCollection<ReplacementPersonInput> Replacements, string? Reason);
+public sealed record BulkCancelRequest(IReadOnlyCollection<Guid> Ids);
 public sealed record SaveAssociationConfigurationRequest(string Name, DateOnly StartDate, int NumberOfMonths,
     decimal MonthlyContribution, IReadOnlyCollection<AssociationEditorMemberInput> Members,
     IReadOnlyCollection<AssociationEditorPayoutInput> Payouts, bool StartAssociation)

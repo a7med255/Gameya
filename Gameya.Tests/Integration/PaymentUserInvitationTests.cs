@@ -38,6 +38,7 @@ public sealed class PaymentUserInvitationTests(GameyaApiFactory factory) : IClas
         var invitation = Assert.Single(list.GetProperty("items").EnumerateArray(),
             x => x.GetProperty("id").GetGuid() == invitationId);
         Assert.Equal("Active", invitation.GetProperty("status").GetString());
+        Assert.Equal(JsonValueKind.Null, invitation.GetProperty("expiresAtUtc").ValueKind);
         Assert.True(invitation.GetProperty("createdAtUtc").GetDateTimeOffset() > DateTimeOffset.UtcNow.AddMinutes(-2));
 
         Assert.Equal(HttpStatusCode.NoContent,

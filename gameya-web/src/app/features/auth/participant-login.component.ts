@@ -26,7 +26,11 @@ export class ParticipantLoginComponent {
   private readonly auth = inject(AuthService); private readonly router = inject(Router); private readonly errors = inject(ApiErrorService);
   protected readonly loading = signal(false); protected readonly error = signal('');
   protected readonly form = new FormGroup({
-    phoneNumber: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(30)] }),
+    phoneNumber: new FormControl('', { nonNullable: true, validators: [
+      Validators.required,
+      Validators.pattern(/^(?:01[0125](?:[ -]*\d){8}|(?:\+20|0020|20)[ -]*1[0125](?:[ -]*\d){8})$/),
+      Validators.maxLength(30),
+    ] }),
     subscriberCode: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.pattern(/^[A-Za-z0-9]{8}$/)] }),
   });
   protected invalid(name: keyof typeof this.form.controls): boolean { const control = this.form.controls[name]; return control.invalid && control.touched; }

@@ -197,7 +197,7 @@ public sealed class IdentityService(
         var now = clock.UtcNow;
         var priorInvitations = await db.PaymentUserInvitations
             .Where(x => x.OwnerId == ownerId && x.Email == normalizedEmail && x.AcceptedAtUtc == null
-                && x.RevokedAtUtc == null && x.ExpiresAtUtc > now)
+                && x.RevokedAtUtc == null)
             .ToListAsync(cancellationToken);
         foreach (var prior in priorInvitations)
         {
@@ -208,7 +208,7 @@ public sealed class IdentityService(
         var invitation = new PaymentUserInvitation
         {
             OwnerId = ownerId, Email = normalizedEmail, TokenHash = Hash(rawToken), CreatedAtUtc = now,
-            ExpiresAtUtc = now.AddDays(7),
+            ExpiresAtUtc = null,
             Associations = ids.Select(x => new InvitationAssociation { AssociationId = x }).ToList()
         };
         await db.PaymentUserInvitations.AddAsync(invitation, cancellationToken);
@@ -216,7 +216,7 @@ public sealed class IdentityService(
         var url = $"{emailOptions.Value.PublicAppBaseUrl.TrimEnd('/')}/payment-user-invitation?token={Uri.EscapeDataString(rawToken)}";
         await email.SendAsync(invitation.Email, "دعوة للانضمام إلى نظام الجمعية",
             ArabicEmailTemplate.Action("دعوة لتسجيل المدفوعات",
-                "تمت دعوتك للانضمام إلى فريق تسجيل المدفوعات. الرابط صالح لمدة 7 أيام ويُستخدم مرة واحدة فقط.",
+                "تمت دعوتك للانضمام إلى فريق تسجيل المدفوعات. الرابط يظل صالحًا حتى قبوله أو إلغائه من المالك، ويُستخدم مرة واحدة فقط.",
                 "قبول الدعوة وإنشاء الحساب", url,
                 "لو الدعوة مش موجهة ليك، تجاهل الرسالة دي. لا تشارك رابط الدعوة مع أي شخص."),
             null, null, cancellationToken);
@@ -286,7 +286,7 @@ public sealed class IdentityService(
         var items = invitations.Select(x => new PaymentUserInvitationDto(x.Id, x.Email, x.CreatedAtUtc,
             x.ExpiresAtUtc, x.AcceptedAtUtc, x.RevokedAtUtc, x.Associations.Select(a => a.AssociationId).ToArray(),
             x.RevokedAtUtc.HasValue ? "Revoked" : x.AcceptedAtUtc.HasValue ? "Accepted"
-                : x.ExpiresAtUtc <= now ? "Expired" : "Active")).ToArray();
+                : x.ExpiresAtUtc.HasValue && x.ExpiresAtUtc <= now ? "Expired" : "Active")).ToArray();
         return new PagedResult<PaymentUserInvitationDto>(items, page, pageSize, total);
     }
 
@@ -361,9 +361,14 @@ public sealed class IdentityService(
             var hash = Hash(token);
             var invitation = await db.PaymentUserInvitations.Include(x => x.Associations)
                 .SingleOrDefaultAsync(x => x.TokenHash == hash, innerCt);
-            if (invitation is null || invitation.AcceptedAtUtc.HasValue || invitation.RevokedAtUtc.HasValue
-                || invitation.ExpiresAtUtc <= clock.UtcNow)
-                throw new AuthenticationException("auth.invalid_invitation", "Invitation is invalid or expired.");
+            if (invitation is null)
+                throw new AuthenticationException("auth.invalid_invitation", "Invitation is invalid.");
+            if (invitation.RevokedAtUtc.HasValue)
+                throw new AuthenticationException("auth.invitation_revoked", "Invitation has been revoked.");
+            if (invitation.AcceptedAtUtc.HasValue)
+                throw new AuthenticationException("auth.invitation_already_accepted", "Invitation has already been accepted.");
+            if (invitation.ExpiresAtUtc.HasValue && invitation.ExpiresAtUtc <= clock.UtcNow)
+                throw new AuthenticationException("auth.invalid_invitation", "Invitation has expired.");
             var user = new ApplicationUser
             {
                 UserName = invitation.Email, Email = invitation.Email, EmailConfirmed = true,

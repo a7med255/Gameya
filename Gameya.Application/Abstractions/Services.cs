@@ -12,7 +12,12 @@ public interface ICurrentUser
     string? IpAddress { get; }
 }
 
-public interface IClock { DateTimeOffset UtcNow { get; } DateOnly Today { get; } }
+public interface IClock
+{
+    DateTimeOffset UtcNow { get; }
+    DateOnly Today { get; }
+    DateTimeOffset EgyptStartOfDayUtc(DateOnly localDate);
+}
 public interface ISubscriberCodeGenerator { string Generate(); }
 
 public interface IAssociationCalendar
@@ -70,11 +75,15 @@ public interface IEmailService
 public interface IReportGenerator
 {
     Task<GeneratedReportDto> GenerateMonthlyAsync(string userId, bool includeAllOwners, int year, int month, CancellationToken cancellationToken);
+    Task<GeneratedReportDto> GenerateAssociationAsync(string userId, bool includeAllOwners, Guid associationId,
+        CancellationToken cancellationToken);
 }
 
 public interface IReportDeliveryService
 {
     Task SendMonthlyAsync(string userId, bool includeAllOwners, int year, int month, CancellationToken cancellationToken);
+    Task SendAssociationAsync(string userId, bool includeAllOwners, Guid associationId,
+        CancellationToken cancellationToken);
 }
 
 public interface IIdempotentReportJob

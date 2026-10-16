@@ -35,7 +35,7 @@ describe('PaymentWorkflowComponent', () => {
 
   it('renders the allocation returned by the backend, including association credit', () => {
     const component = fixture.componentInstance as unknown as PaymentHarness;
-    component.paymentPage.set({ personId: 'p1', fullName: 'أحمد', subscriberCode: 'ABC12345', amountDueNow: 5000, totalRemaining: 10000, associations: [{ associationId: 'a1', associationName: 'جمعية العيلة', monthlyContribution: 5000, amountDueNow: 5000, totalRemaining: 10000, oldestUnpaidDueDate: '2026-01-10', credit: 0, paymentStatus: 'Outstanding' }] });
+    component.paymentPage.set({ personId: 'p1', fullName: 'أحمد', subscriberCode: 'ABC12345', previousOverdue: 0, currentDue: 5000, amountDueNow: 5000, totalRemaining: 10000, dueItems: [{ associationId: 'a1', associationName: 'جمعية العيلة', periodId: 'period1', periodNumber: 1, dueDate: '2026-01-10', amount: 5000 }], associations: [{ associationId: 'a1', associationName: 'جمعية العيلة', monthlyContribution: 5000, amountDueNow: 5000, totalRemaining: 10000, oldestUnpaidDueDate: '2026-01-10', credit: 0, paymentStatus: 'Outstanding' }] });
     component.result.set({ id: 'pay1', personId: 'p1', amount: 8000, method: 'Cash', paidAtUtc: '2026-01-15T13:30:00Z', entryType: 'Payment', allocations: [{ associationId: 'a1', periodId: 'period1', amount: 5000, dueDate: '2026-01-10', lateDays: 5 }], credits: [{ associationId: 'a1', amount: 3000 }] });
     component.stage.set(3); fixture.detectChanges();
     const text = fixture.nativeElement.textContent as string;
@@ -47,7 +47,7 @@ describe('PaymentWorkflowComponent', () => {
 
   it('shows the amount due now as the primary payment value without association selection', () => {
     const component = fixture.componentInstance as unknown as PaymentHarness;
-    component.paymentPage.set({ personId: 'p1', fullName: 'أحمد', subscriberCode: 'ABC12345', amountDueNow: 5000, totalRemaining: 25000, associations: [{ associationId: 'a1', associationName: 'جمعية العيلة', monthlyContribution: 5000, amountDueNow: 5000, totalRemaining: 25000, oldestUnpaidDueDate: '2026-01-10', credit: 0, paymentStatus: 'Outstanding' }] });
+    component.paymentPage.set({ personId: 'p1', fullName: 'أحمد', subscriberCode: 'ABC12345', previousOverdue: 0, currentDue: 5000, amountDueNow: 5000, totalRemaining: 25000, dueItems: [{ associationId: 'a1', associationName: 'جمعية العيلة', periodId: 'period1', periodNumber: 1, dueDate: '2026-01-10', amount: 5000 }], associations: [{ associationId: 'a1', associationName: 'جمعية العيلة', monthlyContribution: 5000, amountDueNow: 5000, totalRemaining: 25000, oldestUnpaidDueDate: '2026-01-10', credit: 0, paymentStatus: 'Outstanding' }] });
     component.stage.set(2); fixture.detectChanges();
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('المبلغ المطلوب دفعه الآن');

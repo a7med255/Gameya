@@ -31,4 +31,8 @@ export class PeopleApiService {
   deactivate(id: string): Observable<void> {
     return this.http.delete<void>(`${this.url}/${id}`);
   }
+
+  bulkDeactivate(ids: readonly string[]): Observable<void> {
+    return this.http.post<void>(`${this.url}/bulk-deactivate`, { ids });
+  }
 }

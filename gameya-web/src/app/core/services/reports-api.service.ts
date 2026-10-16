@@ -18,4 +18,12 @@ export class ReportsApiService {
   send(year: number, month: number): Observable<SendReportResult> {
     return this.http.post<SendReportResult>(`${environment.apiUrl}${API_ENDPOINTS.sendMonthlyReport}`, { year, month });
   }
+
+  downloadAssociation(associationId: string): Observable<Blob> {
+    return this.http.get(`${environment.apiUrl}/reports/associations/${associationId}`, { responseType: 'blob' });
+  }
+
+  sendAssociation(associationId: string): Observable<void> {
+    return this.http.post<void>(`${environment.apiUrl}/reports/associations/${associationId}/send`, {});
+  }
 }

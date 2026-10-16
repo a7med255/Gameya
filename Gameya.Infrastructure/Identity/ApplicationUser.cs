@@ -30,7 +30,7 @@ public sealed class PaymentUserInvitation
     public string Email { get; set; } = string.Empty;
     public string TokenHash { get; set; } = string.Empty;
     public DateTimeOffset CreatedAtUtc { get; set; }
-    public DateTimeOffset ExpiresAtUtc { get; set; }
+    public DateTimeOffset? ExpiresAtUtc { get; set; }
     public DateTimeOffset? AcceptedAtUtc { get; set; }
     public DateTimeOffset? RevokedAtUtc { get; set; }
     public string? RevokedByUserId { get; set; }

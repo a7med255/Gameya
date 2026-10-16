@@ -63,7 +63,7 @@ Use environment variables or a secret store; never commit real values.
 ## Authentication and authorization
 
 - Owners register with email/password and cannot log in until email confirmation.
-- Payment users activate accounts through a seven-day owner invitation.
+- Payment users activate accounts through a single-use owner invitation that remains valid until accepted or explicitly revoked.
 - Participants authenticate with phone number plus their immutable global subscriber code and receive a token scoped to their own person ID.
 - Refresh tokens are random, stored only as SHA-256 hashes, rotated transactionally, revocable, and protected by optimistic concurrency.
 - Association access is enforced in queries and commands. Unauthorized association IDs deliberately return `404` to avoid existence disclosure.
@@ -73,7 +73,7 @@ Use environment variables or a secret store; never commit real values.
 
 - Payments are timestamped by the backend and processed in a serializable transaction.
 - Due obligations are ordered by the oldest outstanding association, then oldest period.
-- Excess requires an explicit association and becomes association-specific credit.
+- The backend allocates payments automatically across accessible associations by oldest outstanding obligation; excess becomes deterministic association-specific credit for a future obligation.
 - Credit use is recorded as immutable ledger entries; it never becomes global credit.
 - Corrections are signed compensating payments and allocations. Payments, allocations, credits, settlements, replacements, and audit history cannot be deleted through the application.
 - Association, payment, payout, refresh-token, and background-job records use concurrency protection where relevant.
@@ -85,9 +85,9 @@ The source does not silently invent these rules:
 
 - `AssociationCalendar` is the calendar boundary. Its current configured policy creates one period per month from `StartDate`, uses `AssociationCalendar:DueDay`, and defines `EndDate` as the final period date. Change this service when the owner approves a different boundary rule.
 - Exact duplicate-name policy is isolated in `CreatePersonHandler`; the current explicit policy is exact normalized-name uniqueness.
-- “سلف” is represented as a real person with `MembershipKind.Advance`, contributes zero to paying-member balance validation, and has no invented final-settlement behavior. That final workflow remains a documented product decision.
+- “سلف” is a virtual payout slot (`AdvanceSlot`), never a person and never a paying membership.
 - “بدون اسم” is a reserve payout slot, never a fake person, and is exactly one full share. A later beneficiary is an association on the reserve payout, not a conversion into a person.
-- The monthly PDF is behind `IReportGenerator`; its current neutral table is a version-zero format pending the approved reference report.
+- Monthly and association paper-style Arabic PDFs share `IReportGenerator`; association reports group multiple recipients per period and render normal, “بدون اسم”, and “سلف” recipients.
 - Replacement payout reassignment remains an explicit owner schedule action because no automatic split rule was supplied.
 
 ## Verification

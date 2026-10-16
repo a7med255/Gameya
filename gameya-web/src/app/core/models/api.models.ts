@@ -193,6 +193,9 @@ export interface PaymentPageDto {
   fullName: string;
   subscriberCode: string;
   associations: readonly AccessibleAssociationDueDto[];
+  dueItems: readonly PaymentDueItemDto[];
+  previousOverdue: number;
+  currentDue: number;
   amountDueNow: number;
   totalRemaining: number;
 }
@@ -255,6 +258,51 @@ export interface RecordPaymentRequest {
   idempotencyKey: string;
 }
 
+export interface PaymentDueItemDto {
+  associationId: string;
+  associationName: string;
+  periodId: string;
+  periodNumber: number;
+  dueDate: string;
+  amount: number;
+}
+export interface AdjustPaymentRequest {
+  amount: number;
+  reason: string;
+  allocations: readonly { associationId: string; periodId: string; amount: number }[];
+  credits: readonly { associationId: string; amount: number }[];
+}
+
+export interface PaymentListAllocationDto extends PaymentAllocationDto {
+  associationName: string;
+  periodNumber: number;
+}
+
+export interface PaymentListItemDto {
+  id: string;
+  personId: string;
+  payerName: string;
+  recordedByUserId: string;
+  amount: number;
+  method: PaymentMethod;
+  paidAtUtc: string;
+  entryType: PaymentEntryType;
+  adjustsPaymentId: string | null;
+  allocations: readonly PaymentListAllocationDto[];
+  credits: readonly PaymentCreditDto[];
+}
+
+export interface PaymentFilters {
+  fromDate?: string;
+  toDate?: string;
+  method?: PaymentMethod | '';
+  personId?: string;
+  associationId?: string;
+  periodNumber?: number | null;
+  entryType?: PaymentEntryType | '';
+  payerSearch?: string;
+}
+
 export type PaymentUserInvitationStatus = 'Active' | 'Accepted' | 'Revoked' | 'Expired';
 export interface PaymentUserDto {
   id: string;
@@ -268,7 +316,7 @@ export interface PaymentUserInvitationDto {
   id: string;
   email: string;
   createdAtUtc: string;
-  expiresAtUtc: string;
+  expiresAtUtc: string | null;
   acceptedAtUtc: string | null;
   revokedAtUtc: string | null;
   associationIds: readonly string[];

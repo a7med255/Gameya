@@ -12,8 +12,10 @@ public sealed class Person : AggregateRoot
     {
         SetName(fullName, now);
         Guard.Against(string.IsNullOrWhiteSpace(phoneNumber), "person.phone_required", "Phone number is required.");
-        PhoneNumber = phoneNumber.Trim();
-        NormalizedPhoneNumber = NormalizePhone(PhoneNumber);
+        PhoneNumber = NormalizePhone(phoneNumber);
+        NormalizedPhoneNumber = PhoneNumber;
+        Guard.Against(!IsValidEgyptianMobile(NormalizedPhoneNumber), "person.invalid_phone",
+            "A valid Egyptian mobile number is required.");
         SubscriberCode = subscriberCode;
         IsActive = true;
         CreatedAtUtc = now;
@@ -40,14 +42,37 @@ public sealed class Person : AggregateRoot
     {
         SetName(fullName, now);
         Guard.Against(string.IsNullOrWhiteSpace(phoneNumber), "person.phone_required", "Phone number is required.");
-        PhoneNumber = phoneNumber.Trim();
-        NormalizedPhoneNumber = NormalizePhone(PhoneNumber);
+        PhoneNumber = NormalizePhone(phoneNumber);
+        NormalizedPhoneNumber = PhoneNumber;
+        Guard.Against(!IsValidEgyptianMobile(NormalizedPhoneNumber), "person.invalid_phone",
+            "A valid Egyptian mobile number is required.");
         UpdatedAtUtc = now;
     }
 
     public void Deactivate(DateTimeOffset now) { IsActive = false; UpdatedAtUtc = now; }
 
     public static string NormalizeName(string name) => string.Join(' ', name.Trim().ToUpperInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
-    public static string NormalizePhone(string phoneNumber) =>
-        string.Concat(phoneNumber.Where(character => !char.IsWhiteSpace(character)));
+    public static string NormalizePhone(string phoneNumber)
+    {
+        var digits = string.Concat(phoneNumber.Where(char.IsAsciiDigit));
+        if (digits.StartsWith("0020", StringComparison.Ordinal) && digits.Length == 14) digits = digits[4..];
+        else if (digits.StartsWith("20", StringComparison.Ordinal) && digits.Length == 12) digits = digits[2..];
+        if (digits.Length == 10 && digits.StartsWith('1')) digits = $"0{digits}";
+        return digits;
+    }
+
+    public static bool IsValidEgyptianMobile(string phoneNumber)
+    {
+        var normalized = NormalizePhone(phoneNumber);
+        return normalized.Length == 11 && normalized.StartsWith("01", StringComparison.Ordinal)
+            && normalized[2] is '0' or '1' or '2' or '5' && normalized.All(char.IsAsciiDigit);
+    }
+
+    public static string[] PhoneVariants(string phoneNumber)
+    {
+        var normalized = NormalizePhone(phoneNumber);
+        if (!IsValidEgyptianMobile(normalized)) return [normalized];
+        var international = $"20{normalized[1..]}";
+        return [normalized, international, $"+{international}", $"00{international}"];
+    }
 }

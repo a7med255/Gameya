@@ -41,6 +41,7 @@ export class AssociationsApiService {
   start(id: string): Observable<void> { return this.http.post<void>(`${this.url}/${id}/start`, {}); }
   pause(id: string): Observable<void> { return this.http.post<void>(`${this.url}/${id}/pause`, {}); }
   cancel(id: string): Observable<void> { return this.http.post<void>(`${this.url}/${id}/cancel`, {}); }
+  bulkCancel(ids: readonly string[]): Observable<void> { return this.http.post<void>(`${this.url}/bulk-cancel`, { ids }); }
   resume(id: string): Observable<void> { return this.http.post<void>(`${this.url}/${id}/resume`, {}); }
   complete(id: string): Observable<void> { return this.http.post<void>(`${this.url}/${id}/complete`, {}); }
   closePeriod(id: string, periodId: string): Observable<void> { return this.http.post<void>(`${this.url}/${id}/periods/${periodId}/close`, {}); }

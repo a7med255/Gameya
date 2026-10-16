@@ -14,8 +14,10 @@ public sealed class CreatePersonValidator : AbstractValidator<CreatePersonComman
 {
     public CreatePersonValidator()
     {
-        RuleFor(x => x.FullName).NotEmpty().MaximumLength(200).WithErrorCode("person.name_required");
-        RuleFor(x => x.PhoneNumber).NotEmpty().MaximumLength(30).Matches("^[0-9+ ]+$").WithErrorCode("person.invalid_phone");
+        RuleFor(x => x.FullName).NotEmpty().MaximumLength(200)
+            .Matches(@"^[\p{L}\p{M}][\p{L}\p{M}\p{N} .'-]+$").WithErrorCode("person.name_required");
+        RuleFor(x => x.PhoneNumber).NotEmpty().MaximumLength(30)
+            .Must(Person.IsValidEgyptianMobile).WithErrorCode("person.invalid_phone");
     }
 }
 public sealed class CreatePersonHandler(IApplicationDbContext db, ISubscriberCodeGenerator codes, IClock clock,
@@ -25,12 +27,12 @@ public sealed class CreatePersonHandler(IApplicationDbContext db, ISubscriberCod
     public async Task<PersonDto> Handle(CreatePersonCommand request, CancellationToken cancellationToken)
     {
         var phone = request.PhoneNumber.Trim();
-        var normalizedPhone = Person.NormalizePhone(phone);
+        var phoneVariants = Person.PhoneVariants(phone);
         var normalizedName = Person.NormalizeName(request.FullName);
         var ownerId = current.UserId ?? throw new ForbiddenException();
         var accessiblePersonIds = personAccess.GetAccessiblePersonIds(ownerId, current.IsInRole(AppRoles.Admin), true);
         if (await db.People.AnyAsync(x => accessiblePersonIds.Contains(x.Id)
-                && x.NormalizedPhoneNumber == normalizedPhone, cancellationToken))
+                && phoneVariants.Contains(x.NormalizedPhoneNumber), cancellationToken))
             throw new ConflictException("person.duplicate_phone", "Phone number already exists.");
         if (await db.People.AnyAsync(x => accessiblePersonIds.Contains(x.Id)
                 && x.NormalizedFullName == normalizedName, cancellationToken))
@@ -72,13 +74,16 @@ public sealed class GetPeopleHandler(IApplicationDbContext db, ICurrentUser curr
             if (candidate.Length == SubscriberCode.Length && candidate.All(c => c is >= 'A' and <= 'Z' or >= '0' and <= '9'))
                 subscriberCode = SubscriberCode.Create(candidate);
             var normalizedPhone = Person.NormalizePhone(search);
-            query = query.Where(x => x.FullName.Contains(search) || x.NormalizedPhoneNumber.Contains(normalizedPhone)
-                || subscriberCode != null && x.SubscriberCode == subscriberCode);
+            query = string.IsNullOrEmpty(normalizedPhone)
+                ? query.Where(x => x.FullName.Contains(search) || subscriberCode != null && x.SubscriberCode == subscriberCode)
+                : query.Where(x => x.FullName.Contains(search) || x.NormalizedPhoneNumber.Contains(normalizedPhone)
+                    || subscriberCode != null && x.SubscriberCode == subscriberCode);
         }
         var page = Math.Max(1, request.Page);
         var size = Math.Clamp(request.PageSize, 1, 100);
         var total = await query.CountAsync(cancellationToken);
-        var items = await query.OrderBy(x => x.FullName).Skip((page - 1) * size).Take(size)
+        var items = await query.OrderByDescending(x => x.IsActive).ThenBy(x => x.NormalizedFullName)
+            .Skip((page - 1) * size).Take(size)
             .Select(x => new PersonDto(x.Id, x.FullName, x.PhoneNumber, x.SubscriberCode.Value,
                 x.IsActive, x.CreatedAtUtc)).ToListAsync(cancellationToken);
         return new PagedResult<PersonDto>(items, page, size, total);
@@ -91,9 +96,10 @@ public sealed class UpdatePersonValidator : AbstractValidator<UpdatePersonComman
     public UpdatePersonValidator()
     {
         RuleFor(x => x.PersonId).NotEmpty().WithErrorCode("person.not_found");
-        RuleFor(x => x.FullName).NotEmpty().MaximumLength(200).WithErrorCode("person.name_required");
-        RuleFor(x => x.PhoneNumber).NotEmpty().MaximumLength(30).Matches("^[0-9+ ]+$")
-            .WithErrorCode("person.invalid_phone");
+        RuleFor(x => x.FullName).NotEmpty().MaximumLength(200)
+            .Matches(@"^[\p{L}\p{M}][\p{L}\p{M}\p{N} .'-]+$").WithErrorCode("person.name_required");
+        RuleFor(x => x.PhoneNumber).NotEmpty().MaximumLength(30)
+            .Must(Person.IsValidEgyptianMobile).WithErrorCode("person.invalid_phone");
     }
 }
 public sealed class UpdatePersonHandler(IApplicationDbContext db, ICurrentUser current,
@@ -106,12 +112,12 @@ public sealed class UpdatePersonHandler(IApplicationDbContext db, ICurrentUser c
         var actorId = current.UserId ?? throw new ForbiddenException();
         var accessibleIds = personAccess.GetAccessiblePersonIds(actorId, current.IsInRole(AppRoles.Admin), true);
         var normalizedName = Person.NormalizeName(request.FullName);
-        var normalizedPhone = Person.NormalizePhone(request.PhoneNumber);
+        var phoneVariants = Person.PhoneVariants(request.PhoneNumber);
         if (await db.People.AnyAsync(x => x.Id != request.PersonId && accessibleIds.Contains(x.Id)
                 && x.NormalizedFullName == normalizedName, cancellationToken))
             throw new ConflictException("person.duplicate_name", "A person with the same normalized name already exists.");
         if (await db.People.AnyAsync(x => x.Id != request.PersonId && accessibleIds.Contains(x.Id)
-                && x.NormalizedPhoneNumber == normalizedPhone, cancellationToken))
+                && phoneVariants.Contains(x.NormalizedPhoneNumber), cancellationToken))
             throw new ConflictException("person.duplicate_phone", "Phone number already exists.");
 
         var person = await db.FindAsync<Person>(request.PersonId, cancellationToken)
@@ -151,6 +157,36 @@ public sealed class DeactivatePersonHandler(IApplicationDbContext db, IPersonAcc
         await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("PersonDeactivated", nameof(Person), person.Id.ToString(),
             new { IsActive = true }, new { IsActive = false }, cancellationToken);
+    }
+}
+
+public sealed record BulkDeactivatePeopleCommand(IReadOnlyCollection<Guid> PersonIds) : IRequest;
+public sealed class BulkDeactivatePeopleValidator : AbstractValidator<BulkDeactivatePeopleCommand>
+{
+    public BulkDeactivatePeopleValidator() => RuleFor(x => x.PersonIds).NotEmpty()
+        .Must(ids => ids.Distinct().Count() == ids.Count).WithErrorCode("person.invalid_selection");
+}
+public sealed class BulkDeactivatePeopleHandler(IApplicationDbContext db, IPersonAccessService personAccess,
+    IClock clock, IAuditService audit) : IRequestHandler<BulkDeactivatePeopleCommand>
+{
+    public async Task Handle(BulkDeactivatePeopleCommand request, CancellationToken cancellationToken)
+    {
+        var ids = request.PersonIds.Distinct().ToArray();
+        foreach (var id in ids) await personAccess.EnsureAccessAsync(id, cancellationToken);
+        var blocked = await db.Memberships.AsNoTracking()
+            .Where(x => ids.Contains(x.PersonId) && x.Status == Domain.Enums.MembershipStatus.Active)
+            .Join(db.Associations.AsNoTracking().Where(x => x.Status == Domain.Enums.AssociationStatus.Draft
+                    || x.Status == Domain.Enums.AssociationStatus.Active || x.Status == Domain.Enums.AssociationStatus.Paused),
+                membership => membership.AssociationId, association => association.Id, (membership, _) => membership.PersonId)
+            .Distinct().AnyAsync(cancellationToken);
+        if (blocked)
+            throw new ConflictException("person.active_membership",
+                "One or more people are participating in a current association.");
+        var people = await db.People.Where(x => ids.Contains(x.Id)).ToListAsync(cancellationToken);
+        foreach (var person in people.Where(x => x.IsActive)) person.Deactivate(clock.UtcNow);
+        await db.SaveChangesAsync(cancellationToken);
+        await audit.WriteAsync("PeopleBulkDeactivated", nameof(Person), string.Join(',', ids), null,
+            new { PersonIds = ids, IsActive = false }, cancellationToken);
     }
 }
 

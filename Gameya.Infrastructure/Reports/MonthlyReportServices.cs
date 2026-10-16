@@ -114,6 +114,134 @@ public sealed class MonthlyReportGenerator(ApplicationDbContext db) : IReportGen
         return new GeneratedReportDto(content, "application/pdf", $"تقرير-الجمعية-{year:D4}-{month:D2}.pdf");
     }
 
+    public async Task<GeneratedReportDto> GenerateAssociationAsync(string userId, bool includeAllOwners,
+        Guid associationId, CancellationToken cancellationToken)
+    {
+        var association = await db.AssociationsSet.AsNoTracking()
+            .Where(x => x.Id == associationId && (includeAllOwners || x.OwnerId == userId))
+            .Select(x => new
+            {
+                x.Id, x.Name, x.StartDate, x.EndDate, x.NumberOfMonths, x.MonthlyContribution, x.Status
+            }).SingleOrDefaultAsync(cancellationToken)
+            ?? throw new NotFoundException("association.not_found", "Association was not found.");
+
+        var periods = await db.PeriodsSet.AsNoTracking().Where(x => x.AssociationId == association.Id)
+            .OrderBy(x => x.PeriodNumber).Select(x => new
+            {
+                x.Id, x.PeriodNumber, x.PeriodDate, x.DueDate
+            }).ToListAsync(cancellationToken);
+        var memberships = await db.MembershipsSet.AsNoTracking().Where(x => x.AssociationId == association.Id)
+            .Join(db.PeopleSet.AsNoTracking(), membership => membership.PersonId, person => person.Id,
+                (membership, person) => new
+                {
+                    membership.Id, membership.PersonId, person.FullName, membership.ShareCount, membership.Kind,
+                    membership.JoinedAtUtc, membership.LeftAtUtc
+                }).ToListAsync(cancellationToken);
+        var payouts = await db.PayoutsSet.AsNoTracking().Where(x => x.AssociationId == association.Id)
+            .OrderBy(x => x.PeriodId).ThenBy(x => x.CreatedAtUtc).Select(x => new
+            {
+                x.PeriodId, x.RecipientType, x.MembershipId, x.BeneficiaryPersonId, x.ShareCount
+            }).ToListAsync(cancellationToken);
+        var beneficiaryIds = payouts.Where(x => x.BeneficiaryPersonId.HasValue)
+            .Select(x => x.BeneficiaryPersonId!.Value).Distinct().ToArray();
+        var beneficiaryNames = await db.PeopleSet.AsNoTracking().Where(x => beneficiaryIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.FullName, cancellationToken);
+        var paidByPeriod = await db.PaymentAllocationsSet.AsNoTracking()
+            .Where(x => x.AssociationId == association.Id)
+            .GroupBy(x => x.PeriodId).Select(x => new { PeriodId = x.Key, Amount = x.Sum(y => y.AllocatedAmount) })
+            .ToDictionaryAsync(x => x.PeriodId, x => x.Amount, cancellationToken);
+        var creditsByPeriod = await db.AssociationCreditApplicationsSet.AsNoTracking()
+            .Where(x => x.AssociationId == association.Id)
+            .GroupBy(x => x.PeriodId).Select(x => new { PeriodId = x.Key, Amount = x.Sum(y => y.Amount) })
+            .ToDictionaryAsync(x => x.PeriodId, x => x.Amount, cancellationToken);
+
+        var rows = new List<AssociationReportRow>();
+        foreach (var period in periods)
+        {
+            var eligibleShares = memberships.Where(x => x.Kind == MembershipKind.Paying
+                    && period.PeriodDate >= DateOnly.FromDateTime(x.JoinedAtUtc.UtcDateTime)
+                    && (!x.LeftAtUtc.HasValue || period.PeriodDate <= DateOnly.FromDateTime(x.LeftAtUtc.Value.UtcDateTime)))
+                .Sum(x => x.ShareCount);
+            var due = eligibleShares * association.MonthlyContribution;
+            var paid = paidByPeriod.GetValueOrDefault(period.Id) + creditsByPeriod.GetValueOrDefault(period.Id);
+            var periodPayouts = payouts.Where(x => x.PeriodId == period.Id).ToArray();
+            if (periodPayouts.Length == 0)
+            {
+                rows.Add(new(period.PeriodNumber, "—", period.PeriodDate, association.MonthlyContribution,
+                    0, 0, paid, Math.Max(0, due - paid), true));
+                continue;
+            }
+            for (var index = 0; index < periodPayouts.Length; index++)
+            {
+                var payout = periodPayouts[index];
+                var recipient = payout.RecipientType switch
+                {
+                    PayoutRecipientType.ReserveSlot => payout.BeneficiaryPersonId.HasValue
+                        ? beneficiaryNames.GetValueOrDefault(payout.BeneficiaryPersonId.Value, "بدون اسم")
+                        : "بدون اسم",
+                    PayoutRecipientType.AdvanceSlot => "سلف",
+                    _ => memberships.FirstOrDefault(x => x.Id == payout.MembershipId)?.FullName ?? "—"
+                };
+                rows.Add(new(period.PeriodNumber, recipient, period.PeriodDate, association.MonthlyContribution,
+                    payout.ShareCount, payout.ShareCount * association.MonthlyContribution * association.NumberOfMonths,
+                    index == 0 ? paid : null, index == 0 ? Math.Max(0, due - paid) : null, index == 0));
+            }
+        }
+
+        var pdf = Document.Create(document => document.Page(page =>
+        {
+            page.Size(PageSizes.A4.Landscape());
+            page.Margin(22);
+            page.ContentFromRightToLeft();
+            page.DefaultTextStyle(x => x.FontFamily("Arial", "Noto Sans Arabic", "DejaVu Sans")
+                .FontSize(9).FontColor(Colors.Black));
+            page.Header().Column(header =>
+            {
+                header.Item().Border(1).BorderColor(Colors.Black).Padding(8).AlignCenter()
+                    .Text($"جمعية رقم / {association.Name}").FontSize(18).Bold();
+                header.Item().PaddingTop(5).Row(row =>
+                {
+                    row.RelativeItem().Text($"ابتداءً من {Date(association.StartDate)}").Bold();
+                    row.RelativeItem().AlignCenter().Text($"إلى {Date(association.EndDate ?? association.StartDate.AddMonths(association.NumberOfMonths - 1))}").Bold();
+                    row.RelativeItem().AlignLeft().Text($"عدد الفترات: {association.NumberOfMonths}").Bold();
+                });
+            });
+            page.Content().PaddingTop(10).Table(table =>
+            {
+                table.ColumnsDefinition(columns =>
+                {
+                    columns.ConstantColumn(38); columns.RelativeColumn(2.2f); columns.RelativeColumn(1.2f);
+                    columns.RelativeColumn(1.15f); columns.RelativeColumn(.8f); columns.RelativeColumn(1.2f);
+                    columns.RelativeColumn(1.15f); columns.RelativeColumn(1.15f);
+                });
+                table.Header(header =>
+                {
+                    PaperHeader(header.Cell()).Text("م"); PaperHeader(header.Cell()).Text("الاسم");
+                    PaperHeader(header.Cell()).Text("التاريخ"); PaperHeader(header.Cell()).Text("المبلغ الشهري");
+                    PaperHeader(header.Cell()).Text("عدد الأسهم"); PaperHeader(header.Cell()).Text("قيمة القبض");
+                    PaperHeader(header.Cell()).Text("الدفع"); PaperHeader(header.Cell()).Text("المتبقي");
+                });
+                foreach (var row in rows)
+                {
+                    PaperCell(table.Cell(), row.FirstInPeriod).Text(row.FirstInPeriod ? row.PeriodNumber.ToString(ArabicCulture) : "");
+                    PaperCell(table.Cell(), row.FirstInPeriod).Text(row.Recipient).Bold();
+                    PaperCell(table.Cell(), row.FirstInPeriod).Text(row.FirstInPeriod ? Date(row.Date) : "");
+                    PaperCell(table.Cell(), row.FirstInPeriod).Text(Money(row.MonthlyAmount));
+                    PaperCell(table.Cell(), row.FirstInPeriod).Text(row.Shares.ToString("0.##", ArabicCulture));
+                    PaperCell(table.Cell(), row.FirstInPeriod).Text(Money(row.PayoutValue));
+                    PaperCell(table.Cell(), row.FirstInPeriod).Text(row.Paid.HasValue ? Money(row.Paid.Value) : "");
+                    PaperCell(table.Cell(), row.FirstInPeriod).Text(row.Remaining.HasValue ? Money(row.Remaining.Value) : "");
+                }
+            });
+            page.Footer().AlignCenter().DefaultTextStyle(x => x.FontSize(8)).Text(text =>
+            {
+                text.Span("صفحة "); text.CurrentPageNumber(); text.Span(" من "); text.TotalPages();
+            });
+        })).GeneratePdf();
+        var safeName = string.Concat(association.Name.Select(character => Path.GetInvalidFileNameChars().Contains(character) ? '-' : character));
+        return new GeneratedReportDto(pdf, "application/pdf", $"تقرير-جمعية-{safeName}.pdf");
+    }
+
     private static IContainer HeaderCell(IContainer container) => container.Background("#176B5B")
         .PaddingVertical(8).PaddingHorizontal(6).AlignMiddle().AlignCenter()
         .DefaultTextStyle(x => x.FontColor(Colors.White).Bold());
@@ -130,10 +258,21 @@ public sealed class MonthlyReportGenerator(ApplicationDbContext db) : IReportGen
         AssociationStatus.Cancelled => "ملغاة",
         _ => "غير محددة"
     };
+
+    private static IContainer PaperHeader(IContainer container) => container.Border(1)
+        .BorderColor(Colors.Black).Background(Colors.Grey.Lighten2).Padding(6).AlignCenter().AlignMiddle()
+        .DefaultTextStyle(x => x.Bold());
+    private static IContainer PaperCell(IContainer container, bool emphasized) => container.Border(1)
+        .BorderColor(Colors.Black).Background(emphasized ? Colors.White : Colors.Grey.Lighten4)
+        .PaddingVertical(6).PaddingHorizontal(4).AlignCenter().AlignMiddle();
+
+    private sealed record AssociationReportRow(int PeriodNumber, string Recipient, DateOnly Date,
+        decimal MonthlyAmount, decimal Shares, decimal PayoutValue, decimal? Paid, decimal? Remaining,
+        bool FirstInPeriod);
 }
 
 public sealed class ReportDeliveryService(IReportGenerator reports, IEmailService email,
-    UserManager<ApplicationUser> users) : IReportDeliveryService
+    UserManager<ApplicationUser> users, ApplicationDbContext db) : IReportDeliveryService
 {
     public async Task SendMonthlyAsync(string userId, bool includeAllOwners, int year, int month,
         CancellationToken cancellationToken)
@@ -142,6 +281,21 @@ public sealed class ReportDeliveryService(IReportGenerator reports, IEmailServic
         var report = await reports.GenerateMonthlyAsync(userId, includeAllOwners, year, month, cancellationToken);
         await email.SendAsync(recipient.Email!, $"تقرير الجمعية الشهري - {month:D2}/{year:D4}",
             ArabicEmailTemplate.Report(year, month),
+            report.Content, report.FileName, cancellationToken);
+    }
+
+    public async Task SendAssociationAsync(string userId, bool includeAllOwners, Guid associationId,
+        CancellationToken cancellationToken)
+    {
+        var recipient = await users.FindByIdAsync(userId)
+            ?? throw new NotFoundException("user.not_found", "User was not found.");
+        var report = await reports.GenerateAssociationAsync(userId, includeAllOwners, associationId, cancellationToken);
+        var associationName = await db.AssociationsSet.AsNoTracking()
+            .Where(x => x.Id == associationId && (includeAllOwners || x.OwnerId == userId))
+            .Select(x => x.Name).SingleOrDefaultAsync(cancellationToken)
+            ?? throw new NotFoundException("association.not_found", "Association was not found.");
+        await email.SendAsync(recipient.Email!, $"تقرير جمعية - {associationName}",
+            ArabicEmailTemplate.AssociationReport(associationName),
             report.Content, report.FileName, cancellationToken);
     }
 }

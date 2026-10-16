@@ -18,6 +18,11 @@ public sealed class SystemClock : IClock
     private static readonly TimeZoneInfo EgyptTimeZone = ResolveEgyptTimeZone();
     public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
     public DateOnly Today => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(UtcNow, EgyptTimeZone).DateTime);
+    public DateTimeOffset EgyptStartOfDayUtc(DateOnly localDate)
+    {
+        var local = DateTime.SpecifyKind(localDate.ToDateTime(TimeOnly.MinValue), DateTimeKind.Unspecified);
+        return new DateTimeOffset(local, EgyptTimeZone.GetUtcOffset(local)).ToUniversalTime();
+    }
     private static TimeZoneInfo ResolveEgyptTimeZone()
     {
         foreach (var id in new[] { "Egypt Standard Time", "Africa/Cairo" })

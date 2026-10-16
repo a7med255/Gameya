@@ -72,7 +72,7 @@ public sealed class RecordPaymentHandler(IApplicationDbContext db, ICurrentUser 
             var allPeriods = await db.Periods.AsNoTracking()
                 .Where(x => validAssociationIds.Contains(x.AssociationId))
                 .OrderBy(x => x.DueDate).ThenBy(x => x.PeriodNumber).ToListAsync(innerCt);
-            var periods = allPeriods.Where(x => x.DueDate <= clock.Today).ToList();
+            var periods = allPeriods.Where(x => x.PeriodDate <= clock.Today).ToList();
             var existingAllocations = await db.PaymentAllocations.AsNoTracking()
                 .Where(x => validAssociationIds.Contains(x.AssociationId))
                 .Join(db.Payments.AsNoTracking().Where(x => x.PersonId == request.PersonId),
@@ -299,11 +299,14 @@ public sealed class GetPaymentByIdHandler(IApplicationDbContext db, IAssociation
     }
 }
 
-public sealed record GetPaymentsQuery(Guid? PersonId, int Page = 1, int PageSize = 20) : IRequest<PagedResult<PaymentDto>>;
-public sealed class GetPaymentsHandler(IApplicationDbContext db, IAssociationAccessService access, ICurrentUser current)
-    : IRequestHandler<GetPaymentsQuery, PagedResult<PaymentDto>>
+public sealed record GetPaymentsQuery(Guid? PersonId, DateOnly? FromDate, DateOnly? ToDate,
+    PaymentMethod? Method, Guid? AssociationId, int? PeriodNumber, PaymentEntryType? EntryType,
+    string? PayerSearch, int Page = 1, int PageSize = 20) : IRequest<PagedResult<PaymentListItemDto>>;
+public sealed class GetPaymentsHandler(IApplicationDbContext db, IAssociationAccessService access, ICurrentUser current,
+    IClock clock)
+    : IRequestHandler<GetPaymentsQuery, PagedResult<PaymentListItemDto>>
 {
-    public async Task<PagedResult<PaymentDto>> Handle(GetPaymentsQuery request, CancellationToken cancellationToken)
+    public async Task<PagedResult<PaymentListItemDto>> Handle(GetPaymentsQuery request, CancellationToken cancellationToken)
     {
         var accessible = access.GetAccessibleAssociationIds(current.UserId ?? throw new ForbiddenException(),
             current.IsInRole(AppRoles.Admin), current.IsInRole(AppRoles.Owner));
@@ -312,6 +315,36 @@ public sealed class GetPaymentsHandler(IApplicationDbContext db, IAssociationAcc
         var visiblePaymentIds = allocationPaymentIds.Concat(creditPaymentIds).Distinct();
         var query = db.Payments.AsNoTracking().Where(x => visiblePaymentIds.Contains(x.Id));
         if (request.PersonId.HasValue) query = query.Where(x => x.PersonId == request.PersonId.Value);
+        if (request.Method.HasValue) query = query.Where(x => x.Method == request.Method.Value);
+        if (request.EntryType.HasValue) query = query.Where(x => x.EntryType == request.EntryType.Value);
+        if (request.FromDate.HasValue)
+        {
+            var start = clock.EgyptStartOfDayUtc(request.FromDate.Value);
+            query = query.Where(x => x.PaidAtUtc >= start);
+        }
+        if (request.ToDate.HasValue)
+        {
+            var end = clock.EgyptStartOfDayUtc(request.ToDate.Value.AddDays(1));
+            query = query.Where(x => x.PaidAtUtc < end);
+        }
+        if (request.AssociationId.HasValue)
+            query = query.Where(x => x.Allocations.Any(a => a.AssociationId == request.AssociationId.Value)
+                || db.AssociationCredits.Any(c => c.PaymentId == x.Id && c.AssociationId == request.AssociationId.Value));
+        if (request.PeriodNumber.HasValue)
+        {
+            var periodIds = db.Periods.Where(x => x.PeriodNumber == request.PeriodNumber.Value).Select(x => x.Id);
+            query = query.Where(x => x.Allocations.Any(a => periodIds.Contains(a.PeriodId)));
+        }
+        if (!string.IsNullOrWhiteSpace(request.PayerSearch))
+        {
+            var value = request.PayerSearch.Trim();
+            var normalizedPhone = Person.NormalizePhone(value);
+            var personIds = string.IsNullOrEmpty(normalizedPhone)
+                ? db.People.Where(x => x.FullName.Contains(value)).Select(x => x.Id)
+                : db.People.Where(x => x.FullName.Contains(value)
+                    || x.NormalizedPhoneNumber.Contains(normalizedPhone)).Select(x => x.Id);
+            query = query.Where(x => personIds.Contains(x.PersonId));
+        }
         var page = Math.Max(1, request.Page); var pageSize = Math.Clamp(request.PageSize, 1, 100);
         var total = await query.CountAsync(cancellationToken);
         var payments = await query.OrderByDescending(x => x.PaidAtUtc).Skip((page - 1) * pageSize).Take(pageSize)
@@ -320,16 +353,28 @@ public sealed class GetPaymentsHandler(IApplicationDbContext db, IAssociationAcc
         var allowedIds = await accessible.ToArrayAsync(cancellationToken);
         var credits = await db.AssociationCredits.AsNoTracking().Where(x => paymentIds.Contains(x.PaymentId)
             && allowedIds.Contains(x.AssociationId)).ToListAsync(cancellationToken);
+        var personIdsForPage = payments.Select(x => x.PersonId).Distinct().ToArray();
+        var payerNames = await db.People.AsNoTracking().Where(x => personIdsForPage.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.FullName, cancellationToken);
+        var associationNames = await db.Associations.AsNoTracking().Where(x => allowedIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.Name, cancellationToken);
+        var periodIdsForPage = payments.SelectMany(x => x.Allocations).Select(x => x.PeriodId).Distinct().ToArray();
+        var periodNumbers = await db.Periods.AsNoTracking().Where(x => periodIdsForPage.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.PeriodNumber, cancellationToken);
         var items = payments.Select(payment =>
         {
             var allocations = payment.Allocations.Where(x => allowedIds.Contains(x.AssociationId))
-                .Select(x => new PaymentAllocationDto(x.AssociationId, x.PeriodId, x.AllocatedAmount, x.DueDate, x.LateDays)).ToList();
+                .Select(x => new PaymentListAllocationDto(x.AssociationId,
+                    associationNames.GetValueOrDefault(x.AssociationId, string.Empty), x.PeriodId,
+                    periodNumbers.GetValueOrDefault(x.PeriodId), x.AllocatedAmount, x.DueDate, x.LateDays)).ToList();
             var paymentCredits = credits.Where(x => x.PaymentId == payment.Id)
                 .Select(x => new PaymentCreditDto(x.AssociationId, x.Amount)).ToList();
-            return new PaymentDto(payment.Id, payment.PersonId, allocations.Sum(x => x.Amount) + paymentCredits.Sum(x => x.Amount),
-                payment.Method, payment.PaidAtUtc, payment.EntryType, allocations, paymentCredits);
+            return new PaymentListItemDto(payment.Id, payment.PersonId,
+                payerNames.GetValueOrDefault(payment.PersonId, string.Empty), payment.RecordedByUserId,
+                allocations.Sum(x => x.Amount) + paymentCredits.Sum(x => x.Amount), payment.Method,
+                payment.PaidAtUtc, payment.EntryType, payment.AdjustsPaymentId, allocations, paymentCredits);
         }).ToList();
-        return new PagedResult<PaymentDto>(items, page, pageSize, total);
+        return new PagedResult<PaymentListItemDto>(items, page, pageSize, total);
     }
 }
 
@@ -362,6 +407,9 @@ public sealed class GetPaymentPageHandler(IApplicationDbContext db, ICurrentUser
         var today = clock.Today;
         var periods = await db.Periods.AsNoTracking().Where(x => ids.Contains(x.AssociationId)).ToListAsync(cancellationToken);
         var result = new List<AccessibleAssociationDueDto>();
+        var dueItems = new List<PaymentDueItemDto>();
+        var previousOverdue = 0m;
+        var currentDue = 0m;
         foreach (var group in membershipData.GroupBy(x => x.a.Id))
         {
             var association = group.First().a;
@@ -386,6 +434,8 @@ public sealed class GetPaymentPageHandler(IApplicationDbContext db, ICurrentUser
             var remaining = Math.Max(0, required - paid - totalCredit);
             var dueNow = 0m;
             DateOnly? oldest = null;
+            var currentPeriodId = periods.Where(x => x.AssociationId == association.Id && x.PeriodDate <= today)
+                .OrderBy(x => x.PeriodDate).Select(x => (Guid?)x.Id).LastOrDefault();
             foreach (var period in periods.Where(x => x.AssociationId == association.Id).OrderBy(x => x.DueDate))
             {
                 var periodPaid = allocations.Where(x => x.AssociationId == association.Id && x.PeriodId == period.Id)
@@ -396,9 +446,13 @@ public sealed class GetPaymentPageHandler(IApplicationDbContext db, ICurrentUser
                 var simulatedCredit = Math.Min(periodRemaining, availableCredit);
                 periodRemaining -= simulatedCredit;
                 availableCredit -= simulatedCredit;
-                if (periodRemaining > 0 && period.DueDate <= today)
+                if (periodRemaining > 0 && period.PeriodDate <= today)
                 {
                     dueNow += periodRemaining;
+                    dueItems.Add(new PaymentDueItemDto(association.Id, association.Name, period.Id,
+                        period.PeriodNumber, period.DueDate, periodRemaining));
+                    if (period.Id == currentPeriodId) currentDue += periodRemaining;
+                    else previousOverdue += periodRemaining;
                     oldest ??= period.DueDate;
                 }
             }
@@ -406,7 +460,9 @@ public sealed class GetPaymentPageHandler(IApplicationDbContext db, ICurrentUser
                 dueNow, remaining, oldest, displayedCredit,
                 remaining == 0 ? "Paid" : dueNow > 0 ? "Outstanding" : "Upcoming"));
         }
-        return new PaymentPageDto(person.Id, person.FullName, person.SubscriberCode.Value, result,
-            result.Sum(x => x.AmountDueNow), result.Sum(x => x.TotalRemaining));
+        var orderedDueItems = dueItems.OrderBy(x => x.DueDate).ThenBy(x => x.AssociationId)
+            .ThenBy(x => x.PeriodId).ToArray();
+        return new PaymentPageDto(person.Id, person.FullName, person.SubscriberCode.Value, result, orderedDueItems,
+            previousOverdue, currentDue, result.Sum(x => x.AmountDueNow), result.Sum(x => x.TotalRemaining));
     }
 }

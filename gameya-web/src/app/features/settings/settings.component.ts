@@ -22,7 +22,7 @@ import { LoadingStateComponent } from '../../shared/ui/loading-state.component';
     <div class="page settings-page">
       <header class="page-header"><div><h1 class="page-title">إدارة مسجلي المدفوعات</h1><p class="page-subtitle">إرسال الدعوات فورًا، إلغاء الروابط النشطة، ومراجعة صلاحيات الفريق.</p></div></header>
 
-      <section class="card"><h2 class="section-title">دعوة مسجل مدفوعات</h2><p class="muted">الدعوة بتتبعت فورًا، والرابط آمن وصالح لمدة 7 أيام ويُستخدم مرة واحدة.</p>
+      <section class="card"><h2 class="section-title">دعوة مسجل مدفوعات</h2><p class="muted">الدعوة بتتبعت فورًا، والرابط يظل صالحًا لحد القبول أو إلغائه منك، ويُستخدم مرة واحدة.</p>
         <form class="stack" [formGroup]="form" (ngSubmit)="invite()">
           <div class="field"><label for="inviteEmail">البريد الإلكتروني</label><input class="control" id="inviteEmail" type="email" dir="ltr" autocomplete="email" formControlName="email">@if (form.controls.email.invalid && form.controls.email.touched) { <span class="field__error">اكتب بريد إلكتروني صحيح.</span> }</div>
           <fieldset class="association-choices"><legend>الجمعيات المسموح بها</legend>

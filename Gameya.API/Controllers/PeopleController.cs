@@ -24,9 +24,13 @@ public sealed class PeopleController(ISender sender) : ControllerBase
     [HttpDelete("{id:guid}"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
     public async Task<IActionResult> Deactivate(Guid id, CancellationToken cancellationToken)
     { await sender.Send(new DeactivatePersonCommand(id), cancellationToken); return NoContent(); }
+    [HttpPost("bulk-deactivate"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
+    public async Task<IActionResult> BulkDeactivate(BulkDeactivateRequest request, CancellationToken cancellationToken)
+    { await sender.Send(new BulkDeactivatePeopleCommand(request.Ids), cancellationToken); return NoContent(); }
     [HttpGet("{id:guid}/financial-summary")]
     [Authorize(Policy = AppPolicies.OwnerOrAdmin)]
     public async Task<IActionResult> FinancialSummary(Guid id, CancellationToken cancellationToken) => Ok(await sender.Send(new GetPersonProfileQuery(id), cancellationToken));
 }
 
 public sealed record UpdatePersonRequest(string FullName, string PhoneNumber);
+public sealed record BulkDeactivateRequest(IReadOnlyCollection<Guid> Ids);

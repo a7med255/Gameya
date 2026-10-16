@@ -106,9 +106,9 @@ public sealed class SecurityTests(GameyaApiFactory factory) : IClassFixture<Game
         var secondEmail = $"owner-scope-b-{Guid.NewGuid():N}@example.com";
         var firstOwnerId = await CreateOwnerAsync(firstEmail);
         var secondOwnerId = await CreateOwnerAsync(secondEmail);
-        var firstPerson = new Person("Scoped Person A", $"+204{Random.Shared.Next(10000000, 99999999)}",
+        var firstPerson = new Person("Scoped Person A", $"+2010{Random.Shared.Next(10000000, 99999999)}",
             SubscriberCode.Create("SCOP2345"), DateTimeOffset.UtcNow);
-        var secondPerson = new Person("Scoped Person B", $"+205{Random.Shared.Next(10000000, 99999999)}",
+        var secondPerson = new Person("Scoped Person B", $"+2011{Random.Shared.Next(10000000, 99999999)}",
             SubscriberCode.Create("SCOP6789"), DateTimeOffset.UtcNow);
         await using (var scope = factory.Services.CreateAsyncScope())
         {
@@ -130,7 +130,7 @@ public sealed class SecurityTests(GameyaApiFactory factory) : IClassFixture<Game
         var createdResponse = await client.PostAsJsonAsync("/api/people", new
         {
             fullName = $"New Scoped {Guid.NewGuid():N}",
-            phoneNumber = $"+206{Random.Shared.Next(10000000, 99999999)}"
+            phoneNumber = $"+2012{Random.Shared.Next(10000000, 99999999)}"
         });
         createdResponse.EnsureSuccessStatusCode();
         var createdId = (await createdResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
@@ -160,12 +160,12 @@ public sealed class SecurityTests(GameyaApiFactory factory) : IClassFixture<Game
         var email = $"owner-pagination-{Guid.NewGuid():N}@example.com";
         await CreateOwnerAsync(email);
         var client = await LoginOwnerAsync(email);
-        var uniquePhone = $"+209{Random.Shared.Next(10000000, 99999999)}";
+        var uniquePhone = $"+2015{Random.Shared.Next(10000000, 99999999)}";
         foreach (var item in new[]
                  {
                      new { fullName = $"Paged A {Guid.NewGuid():N}", phoneNumber = uniquePhone },
-                     new { fullName = $"Paged B {Guid.NewGuid():N}", phoneNumber = $"+208{Random.Shared.Next(10000000, 99999999)}" },
-                     new { fullName = $"Paged C {Guid.NewGuid():N}", phoneNumber = $"+206{Random.Shared.Next(10000000, 99999999)}" }
+                     new { fullName = $"Paged B {Guid.NewGuid():N}", phoneNumber = $"+2010{Random.Shared.Next(10000000, 99999999)}" },
+                     new { fullName = $"Paged C {Guid.NewGuid():N}", phoneNumber = $"+2011{Random.Shared.Next(10000000, 99999999)}" }
                  })
             (await client.PostAsJsonAsync("/api/people", item)).EnsureSuccessStatusCode();
 
@@ -179,7 +179,7 @@ public sealed class SecurityTests(GameyaApiFactory factory) : IClassFixture<Game
         var search = await client.GetFromJsonAsync<JsonElement>(
             $"/api/people?search={Uri.EscapeDataString(uniquePhone.Replace(" ", string.Empty, StringComparison.Ordinal))}&page=1&pageSize=20");
         var match = Assert.Single(search.GetProperty("items").EnumerateArray());
-        Assert.Equal(uniquePhone, match.GetProperty("phoneNumber").GetString());
+        Assert.Equal(Person.NormalizePhone(uniquePhone), match.GetProperty("phoneNumber").GetString());
     }
 
     private static Association NewAssociation(string name)

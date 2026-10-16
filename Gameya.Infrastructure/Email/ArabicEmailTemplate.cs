@@ -45,4 +45,19 @@ internal static class ArabicEmailTemplate
           </div>
         </body></html>
         """;
+
+    public static string AssociationReport(string associationName)
+    {
+        var safeName = HtmlEncoder.Default.Encode(associationName);
+        return $$"""
+            <!doctype html>
+            <html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+            <body style="margin:0;background:#f3f7f6;font-family:Tahoma,Arial,sans-serif;color:#17342f;direction:rtl;text-align:right">
+              <div style="max-width:600px;margin:24px auto;background:#fff;border:1px solid #dce8e5;border-radius:16px;padding:28px">
+                <h1 style="font-size:24px;margin:0 0 14px">تقرير الجمعية</h1>
+                <p style="font-size:16px;line-height:1.9;margin:0">مرفق تقرير جمعية <strong>{{safeName}}</strong> بصيغة PDF، ويتضمن جدول الفترات والمستفيدين والمدفوعات.</p>
+              </div>
+            </body></html>
+            """;
+    }
 }

@@ -33,7 +33,7 @@ import { LoadingStateComponent } from '../../shared/ui/loading-state.component';
           </article>
           <aside class="card">
             <h2 class="section-title">إجراءات سريعة</h2>
-            <div class="stack"><a class="btn btn--secondary btn--block" routerLink="/owner/people">إضافة شخص</a><a class="btn btn--secondary btn--block" routerLink="/owner/associations/new">إنشاء جمعية</a><a class="btn btn--secondary btn--block" routerLink="/owner/reports">تقرير الشهر</a></div>
+            <div class="stack"><a class="btn btn--secondary btn--block" routerLink="/owner/people">إضافة شخص</a><a class="btn btn--secondary btn--block" routerLink="/owner/associations/new">إنشاء جمعية</a><a class="btn btn--secondary btn--block" routerLink="/owner/reports">تقرير الشهر</a><a class="btn btn--primary btn--block" routerLink="/owner/reports">تقارير الجمعيات</a></div>
           </aside>
         </section>
       }

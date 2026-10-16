@@ -152,5 +152,5 @@ public sealed class AssociationEditorApiTests(GameyaApiFactory factory) : IClass
         return client;
     }
 
-    private static string UniquePhone() => $"+201{Random.Shared.NextInt64(10_000_000, 99_999_999)}";
+    private static string UniquePhone() => $"+2010{Random.Shared.NextInt64(10_000_000, 99_999_999)}";
 }

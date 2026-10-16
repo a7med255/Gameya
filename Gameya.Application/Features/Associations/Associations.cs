@@ -201,6 +201,32 @@ public sealed class CancelAssociationHandler(IApplicationDbContext db, IAssociat
             new { Status = previous }, new { Status = AssociationStatus.Cancelled }, cancellationToken);
     }
 }
+public sealed record BulkCancelAssociationsCommand(IReadOnlyCollection<Guid> AssociationIds) : IRequest;
+public sealed class BulkCancelAssociationsValidator : AbstractValidator<BulkCancelAssociationsCommand>
+{
+    public BulkCancelAssociationsValidator() => RuleFor(x => x.AssociationIds).NotEmpty()
+        .Must(ids => ids.Distinct().Count() == ids.Count).WithErrorCode("association.invalid_selection");
+}
+public sealed class BulkCancelAssociationsHandler(IApplicationDbContext db, IAssociationAccessService access,
+    IClock clock, IAuditService audit) : IRequestHandler<BulkCancelAssociationsCommand>
+{
+    public async Task Handle(BulkCancelAssociationsCommand request, CancellationToken cancellationToken)
+    {
+        var ids = request.AssociationIds.Distinct().ToArray();
+        foreach (var id in ids) await access.EnsureAccessAsync(id, cancellationToken);
+        var associations = new List<Association>();
+        foreach (var id in ids)
+            associations.Add(await db.FindAssociationForUpdateAsync(id, cancellationToken)
+                ?? throw new NotFoundException("association.not_found", "Association was not found."));
+        if (associations.Any(x => x.Status is AssociationStatus.Completed or AssociationStatus.Cancelled))
+            throw new ConflictException("association.cancel_state",
+                "Completed or already cancelled associations cannot be cancelled.");
+        foreach (var association in associations) association.Cancel(clock.UtcNow);
+        await db.SaveChangesAsync(cancellationToken);
+        await audit.WriteAsync("AssociationsBulkCancelled", nameof(Association), string.Join(',', ids), null,
+            new { AssociationIds = ids, Status = AssociationStatus.Cancelled }, cancellationToken);
+    }
+}
 public sealed record ResumeAssociationCommand(Guid AssociationId) : IRequest;
 public sealed class ResumeAssociationHandler(IApplicationDbContext db, IAssociationAccessService access, IClock clock, IAuditService audit)
     : IRequestHandler<ResumeAssociationCommand>
@@ -385,9 +411,11 @@ public sealed class ReplaceMemberValidator : AbstractValidator<ReplaceMemberComm
             x.RuleFor(y => y.ShareCount).GreaterThan(0).WithErrorCode("membership.invalid_shares");
             x.RuleFor(y => y.ShareCount).Must(value => value * 2 == decimal.Truncate(value * 2))
                 .WithErrorCode("membership.invalid_shares");
-            x.RuleFor(y => y.FullName).NotEmpty().MaximumLength(200).When(y => y.PersonId is null)
+            x.RuleFor(y => y.FullName).NotEmpty().MaximumLength(200)
+                .Matches(@"^[\p{L}\p{M}][\p{L}\p{M}\p{N} .'-]+$").When(y => y.PersonId is null)
                 .WithErrorCode("person.name_required");
-            x.RuleFor(y => y.PhoneNumber).NotEmpty().MaximumLength(30).Matches("^[0-9+ ]+$")
+            x.RuleFor(y => y.PhoneNumber).NotEmpty().MaximumLength(30)
+                .Must(value => value is not null && Person.IsValidEgyptianMobile(value))
                 .When(y => y.PersonId is null).WithErrorCode("person.invalid_phone");
         });
     }
@@ -419,9 +447,10 @@ public sealed class ReplaceMemberHandler(IApplicationDbContext db, IAssociationA
             }
             var phone = input.PhoneNumber!.Trim();
             var normalizedPhone = Person.NormalizePhone(phone);
+            var phoneVariants = Person.PhoneVariants(phone);
             var normalizedName = Person.NormalizeName(input.FullName!);
             if (!newPhones.Add(normalizedPhone) || await db.People.AnyAsync(x => accessiblePersonIds.Contains(x.Id)
-                    && x.NormalizedPhoneNumber == normalizedPhone, cancellationToken))
+                    && phoneVariants.Contains(x.NormalizedPhoneNumber), cancellationToken))
                 throw new ConflictException("person.duplicate_phone", "Phone number already exists.");
             if (!newNames.Add(normalizedName) || await db.People.AnyAsync(x => accessiblePersonIds.Contains(x.Id)
                     && x.NormalizedFullName == normalizedName, cancellationToken))

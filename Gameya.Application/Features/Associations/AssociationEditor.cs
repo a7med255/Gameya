@@ -54,9 +54,11 @@ public sealed class SaveAssociationConfigurationValidator : AbstractValidator<Sa
                 .Must(value => value * 2 == decimal.Truncate(value * 2))
                 .WithErrorCode("membership.invalid_shares");
             member.RuleFor(x => x.DisplayOrder).GreaterThanOrEqualTo(0);
-            member.RuleFor(x => x.FullName).NotEmpty().MaximumLength(200).When(x => x.PersonId is null)
+            member.RuleFor(x => x.FullName).NotEmpty().MaximumLength(200)
+                .Matches(@"^[\p{L}\p{M}][\p{L}\p{M}\p{N} .'-]+$").When(x => x.PersonId is null)
                 .WithErrorCode("person.name_required");
-            member.RuleFor(x => x.PhoneNumber).NotEmpty().MaximumLength(30).Matches("^[0-9+ ]+$")
+            member.RuleFor(x => x.PhoneNumber).NotEmpty().MaximumLength(30)
+                .Must(value => value is not null && Person.IsValidEgyptianMobile(value))
                 .When(x => x.PersonId is null).WithErrorCode("person.invalid_phone");
         });
         RuleForEach(x => x.Payouts).ChildRules(payout =>
@@ -167,12 +169,13 @@ public sealed class SaveAssociationConfigurationHandler(
                 {
                     var normalizedNameInput = Person.NormalizeName(input.FullName!);
                     var normalizedPhoneInput = Person.NormalizePhone(input.PhoneNumber!);
+                    var phoneVariants = Person.PhoneVariants(input.PhoneNumber!);
                     var duplicateName = !knownNames.Add(normalizedNameInput)
                         || await db.People.AnyAsync(x => ownerPersonIds.Contains(x.Id)
                             && x.NormalizedFullName == normalizedNameInput, innerCancellationToken);
                     var duplicatePhone = !knownPhones.Add(normalizedPhoneInput)
                         || await db.People.AnyAsync(x => ownerPersonIds.Contains(x.Id)
-                            && x.NormalizedPhoneNumber == normalizedPhoneInput, innerCancellationToken);
+                            && phoneVariants.Contains(x.NormalizedPhoneNumber), innerCancellationToken);
                     if (duplicateName)
                         errors.Add(new("person.duplicate_name", $"members[{input.DisplayOrder}].fullName", null,
                             "A person with the same normalized name already exists for this owner."));

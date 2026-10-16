@@ -18,7 +18,7 @@ public sealed class PaymentWorkflowTests(GameyaApiFactory factory) : IClassFixtu
     public async Task Payment_page_returns_only_amount_due_now_and_retries_are_idempotent()
     {
         var email = $"owner-due-now-{Guid.NewGuid():N}@example.com";
-        var person = new Person("Current Due Person", $"+207{Random.Shared.Next(10000000, 99999999)}",
+        var person = new Person("Current Due Person", $"+2010{Random.Shared.Next(10000000, 99999999)}",
             SubscriberCode.Create("DUEN2345"), DateTimeOffset.UtcNow.AddMonths(-2));
         Association association;
         await using (var scope = factory.Services.CreateAsyncScope())
@@ -53,6 +53,8 @@ public sealed class PaymentWorkflowTests(GameyaApiFactory factory) : IClassFixtu
         var page = await client.GetFromJsonAsync<JsonElement>($"/api/payments/page/{person.Id}");
         Assert.Equal(1_000m, page.GetProperty("amountDueNow").GetDecimal());
         Assert.Equal(2_000m, page.GetProperty("totalRemaining").GetDecimal());
+        Assert.Equal(1_000m, Assert.Single(page.GetProperty("dueItems").EnumerateArray())
+            .GetProperty("amount").GetDecimal());
 
         var idempotencyKey = Guid.NewGuid().ToString("N");
         var request = new { personId = person.Id, amount = 1_000m, method = PaymentMethod.Cash, idempotencyKey };
@@ -72,7 +74,7 @@ public sealed class PaymentWorkflowTests(GameyaApiFactory factory) : IClassFixtu
     public async Task Payments_allocate_oldest_first_and_keep_excess_as_association_credit()
     {
         var email = $"owner-payments-{Guid.NewGuid():N}@example.com";
-        var person = new Person("Payment Person", $"+201{Random.Shared.Next(10000000, 99999999)}",
+        var person = new Person("Payment Person", $"+2011{Random.Shared.Next(10000000, 99999999)}",
             SubscriberCode.Create("PAYM2345"), DateTimeOffset.UtcNow.AddMonths(-4));
         string ownerId;
         Association association;
@@ -140,9 +142,9 @@ public sealed class PaymentWorkflowTests(GameyaApiFactory factory) : IClassFixtu
     public async Task One_persons_payment_does_not_reduce_another_persons_obligation()
     {
         var email = $"owner-isolation-{Guid.NewGuid():N}@example.com";
-        var firstPerson = new Person("Allocation Owner One", $"+202{Random.Shared.Next(10000000, 99999999)}",
+        var firstPerson = new Person("Allocation Owner One", $"+2012{Random.Shared.Next(10000000, 99999999)}",
             SubscriberCode.Create("ISOL2345"), DateTimeOffset.UtcNow.AddMonths(-3));
-        var secondPerson = new Person("Allocation Owner Two", $"+203{Random.Shared.Next(10000000, 99999999)}",
+        var secondPerson = new Person("Allocation Owner Two", $"+2015{Random.Shared.Next(10000000, 99999999)}",
             SubscriberCode.Create("ISOL6789"), DateTimeOffset.UtcNow.AddMonths(-3));
         Association association;
         await using (var scope = factory.Services.CreateAsyncScope())
