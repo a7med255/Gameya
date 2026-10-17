@@ -14,6 +14,9 @@ public sealed class IdempotentReportJob(ApplicationDbContext db, IReportDelivery
     {
         var execution = await db.BackgroundJobExecutions.SingleOrDefaultAsync(x => x.ExecutionKey == executionKey, cancellationToken);
         if (execution?.Status == "Completed") return;
+        // A scheduler retry while the first request is still running must not send the same report twice.
+        // Failed or stale executions remain safely retryable.
+        if (execution?.Status == "Started" && execution.StartedAtUtc > clock.UtcNow.AddMinutes(-30)) return;
         if (execution is null)
         {
             execution = new BackgroundJobExecution { ExecutionKey = executionKey, StartedAtUtc = clock.UtcNow };
@@ -39,12 +42,12 @@ public sealed class IdempotentReportJob(ApplicationDbContext db, IReportDelivery
 public sealed class MonthlyReportCoordinator(UserManager<ApplicationUser> users, IIdempotentReportJob reportJob, IClock clock)
     : IMonthlyReportCoordinator
 {
-    public async Task SendPreviousMonthAsync(CancellationToken cancellationToken)
+    public async Task SendCurrentMonthAsync(CancellationToken cancellationToken)
     {
-        var period = clock.UtcNow.AddMonths(-1);
+        var period = clock.Today;
         var owners = await users.GetUsersInRoleAsync(AppRoles.Owner);
         foreach (var owner in owners.Where(x => x.IsActive))
-            await reportJob.ExecuteAsync($"automatic:{owner.Id}:{period:yyyyMM}", owner.Id, false,
+            await reportJob.ExecuteAsync($"automatic:{owner.Id}:{period:yyyy}{period.Month:D2}", owner.Id, false,
                 period.Year, period.Month, cancellationToken);
     }
 }

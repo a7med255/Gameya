@@ -63,6 +63,7 @@ public static class DependencyInjection
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
         services.Configure<AssociationCalendarOptions>(configuration.GetSection(AssociationCalendarOptions.SectionName));
+        services.Configure<ScheduledReportsOptions>(configuration.GetSection(ScheduledReportsOptions.SectionName));
         var jwt = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? throw new InvalidOperationException("JWT configuration is required.");
         if (string.IsNullOrWhiteSpace(jwt.Issuer) || string.IsNullOrWhiteSpace(jwt.Audience))
             throw new InvalidOperationException("JWT issuer and audience are required.");
@@ -99,7 +100,9 @@ public static class DependencyInjection
         services.AddScoped<IAssociationAccessService, AssociationAccessService>(); services.AddScoped<IIdentityService, IdentityService>();
         services.AddScoped<IPersonAccessService, PersonAccessService>();
         services.AddScoped<IAuditService, AuditService>(); services.AddScoped<IEmailService, SmtpEmailService>();
-        services.AddScoped<IReportGenerator, MonthlyReportGenerator>(); services.AddScoped<IReportDeliveryService, ReportDeliveryService>();
+        services.AddScoped<IUserDisplayNameService, UserDisplayNameService>();
+        services.AddScoped<MonthlyReportGenerator>();
+        services.AddScoped<IReportGenerator, MonthlyCollectionReportGenerator>(); services.AddScoped<IReportDeliveryService, ReportDeliveryService>();
         services.AddScoped<IIdempotentReportJob, IdempotentReportJob>();
         services.AddScoped<IMonthlyReportCoordinator, MonthlyReportCoordinator>();
 

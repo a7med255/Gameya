@@ -1,0 +1,1 @@
+import{rr as yE}from"./chunk-BAoBPVmX.js";import{r as n}from"./chunk-BCEpDEJD.js";var m=(()=>{class t{transform(e){return n(e)}static{this.ɵfac=function(o){return new(o||t)}}static{this.ɵpipe=yE({name:`money`,type:t,pure:!0})}}return t})();export{m as t};

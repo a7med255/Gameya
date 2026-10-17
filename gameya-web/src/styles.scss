@@ -166,7 +166,10 @@ textarea.control { min-height: 7rem; resize: vertical; }
 }
 
 @media (max-width: 767px) {
-  .page { padding: 1rem; padding-block-end: 6rem; }
+  .page { padding: 1rem; padding-block-end: calc(6rem + env(safe-area-inset-bottom)); overflow-x: clip; }
+  body { font-size: 1rem; }
+  .control { min-height: 3.25rem; font-size: 1rem; }
+  .btn { min-height: 3rem; font-size: 1rem; }
   .page-header { align-items: stretch; flex-direction: column; }
   .page-header > .btn { width: 100%; }
   .stat-grid, .form-grid { grid-template-columns: 1fr; }

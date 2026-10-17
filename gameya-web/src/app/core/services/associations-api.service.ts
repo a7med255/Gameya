@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { API_ENDPOINTS } from '../constants/api-endpoints';
 import {
-  AddMemberRequest, AddPayoutRequest, AssociationDetailsDto, AssociationEditorDto, AssociationStatus, AssociationSummaryDto,
+  AddMemberRequest, AddPayoutRequest, AssociationAuditDto, AssociationDetailsDto, AssociationEditorDto, AssociationStatus, AssociationSummaryDto,
   CreatedId, CreateAssociationRequest, InvitePaymentUserRequest, MovePayoutRequest, PagedResult,
   PayoutDto, ReplaceMemberRequest,
   SaveAssociationConfigurationRequest,
@@ -31,6 +31,10 @@ export class AssociationsApiService {
     return this.http.put<AssociationDetailsDto>(`${this.url}/${id}/configuration`, request);
   }
   editor(id: string): Observable<AssociationEditorDto> { return this.http.get<AssociationEditorDto>(`${this.url}/${id}/editor`); }
+  audit(id: string, page = 1, pageSize = 20): Observable<PagedResult<AssociationAuditDto>> {
+    const params = new HttpParams().set('page', page).set('pageSize', pageSize);
+    return this.http.get<PagedResult<AssociationAuditDto>>(`${this.url}/${id}/audit`, { params });
+  }
   addMember(id: string, request: AddMemberRequest): Observable<CreatedId> { return this.http.post<CreatedId>(`${this.url}/${id}/members`, request); }
   changeShares(id: string, memberId: string, shareCount: number): Observable<void> {
     return this.http.patch<void>(`${this.url}/${id}/members/${memberId}/shares`, { shareCount });

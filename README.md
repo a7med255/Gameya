@@ -56,9 +56,16 @@ Use environment variables or a secret store; never commit real values.
 - `Email__PublicApiBaseUrl` (email-confirmation callback)
 - `Email__PublicAppBaseUrl` (payment-user invitation callback)
 - `Cors__AllowedOrigins__0` (and subsequent origins)
+- `ScheduledReports__Secret` (at least 32 random characters; server-side only)
 - Optional one-time bootstrap: `BootstrapAdmin__Email` and `BootstrapAdmin__Password`
 
 `Database__ApplyMigrationsOnStartup` should normally be `false` in a multi-instance production deployment; apply migrations as a release step. It is enabled by the included local Docker Compose configuration.
+
+### Automatic monthly collection email
+
+MonsterASP Free cannot guarantee that an in-process timer stays alive, so Gameya exposes an external-scheduler endpoint instead of using Hangfire. Configure a scheduler such as cron-job.org to call `POST /api/internal/scheduled-reports/monthly-collection` on the first day of each month at the chosen Egypt (`Africa/Cairo`) time with header `X-Gameya-Scheduler-Key` equal to `ScheduledReports__Secret`.
+
+The endpoint generates the current Egyptian business month's collection PDF for every active Owner. Executions use the durable key `automatic:{ownerId}:{yyyyMM}`: completed deliveries are never repeated, overlapping calls are ignored, and failed/stale executions can be retried. The secret is never sent to Angular. Manual PDF download and email delivery do not depend on the scheduler.
 
 ## Authentication and authorization
 

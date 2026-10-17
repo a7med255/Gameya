@@ -16,6 +16,12 @@ public sealed class AssociationCalendarOptions
     public int DueDay { get; init; } = 10;
 }
 
+public sealed class ScheduledReportsOptions
+{
+    public const string SectionName = "ScheduledReports";
+    public string Secret { get; set; } = string.Empty;
+}
+
 public sealed class EmailOptions
 {
     public const string SectionName = "Email";

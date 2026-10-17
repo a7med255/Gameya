@@ -31,6 +31,8 @@ export const routes: Routes = [
       { path: 'replacements', data: { mode: 'replacements' }, loadComponent: () => import('./features/workflows/workflow-directory.component').then((x) => x.WorkflowDirectoryComponent) },
       { path: 'settlements', data: { mode: 'settlements' }, loadComponent: () => import('./features/workflows/workflow-directory.component').then((x) => x.WorkflowDirectoryComponent) },
       { path: 'reports', loadComponent: () => import('./features/reports/reports.component').then((x) => x.ReportsComponent) },
+      { path: 'monthly-collection', data: { mode: 'collection' }, loadComponent: () => import('./features/reports/monthly-finance.component').then((x) => x.MonthlyFinanceComponent) },
+      { path: 'monthly-payouts', data: { mode: 'payouts' }, loadComponent: () => import('./features/reports/monthly-finance.component').then((x) => x.MonthlyFinanceComponent) },
       { path: 'settings', loadComponent: () => import('./features/settings/settings.component').then((x) => x.SettingsComponent) },
     ],
   },

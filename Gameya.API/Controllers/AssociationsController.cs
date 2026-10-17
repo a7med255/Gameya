@@ -30,6 +30,10 @@ public sealed class AssociationsController(ISender sender) : ControllerBase
     [HttpGet("{id:guid}/editor")]
     public async Task<IActionResult> Editor(Guid id, CancellationToken cancellationToken) =>
         Ok(await sender.Send(new GetAssociationEditorQuery(id), cancellationToken));
+    [HttpGet("{id:guid}/audit")]
+    public async Task<IActionResult> Audit(Guid id, [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default) =>
+        Ok(await sender.Send(new GetAssociationAuditQuery(id, page, pageSize), cancellationToken));
     [HttpPut("{id:guid}/configuration"), Authorize(Policy = AppPolicies.OwnerOrAdmin)]
     public async Task<IActionResult> SaveConfiguration(Guid id, SaveAssociationConfigurationRequest request,
         CancellationToken cancellationToken) => Ok(await sender.Send(request.ToCommand(id), cancellationToken));

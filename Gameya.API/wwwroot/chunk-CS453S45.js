@@ -1,0 +1,1 @@
+import{Bt as _,Pn as pe,kt as Xh,nr as y}from"./chunk-BAoBPVmX.js";function w(t){t||(t=y(pe));let i=new _(e=>{if(t.destroyed){e.next();return}return t.onDestroy(e.next.bind(e))});return e=>e.pipe(Xh(i))}export{w as t};

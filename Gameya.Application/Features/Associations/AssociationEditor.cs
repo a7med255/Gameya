@@ -101,6 +101,12 @@ public sealed class SaveAssociationConfigurationHandler(
         var ownerId = current.UserId ?? throw new ForbiddenException();
         if (request.AssociationId.HasValue)
             await associationAccess.EnsureAccessAsync(request.AssociationId.Value, cancellationToken);
+        var previousConfiguration = request.AssociationId.HasValue
+            ? await db.Associations.AsNoTracking().Where(x => x.Id == request.AssociationId.Value)
+                .Select(x => new AssociationConfigurationAudit(x.Name, x.StartDate, x.NumberOfMonths,
+                    x.MonthlyContribution, x.Memberships.Count, x.Payouts.Count, x.Status.ToString()))
+                .SingleOrDefaultAsync(cancellationToken)
+            : null;
 
         var result = await db.ExecuteSerializableAsync(async innerCancellationToken =>
         {
@@ -252,12 +258,16 @@ public sealed class SaveAssociationConfigurationHandler(
 
         logger.LogInformation("Association {AssociationId} configuration saved atomically with {MemberCount} members and {PayoutCount} payouts; start={Start}",
             result.Id, result.Memberships.Count, result.Payouts.Count, request.StartAssociation);
-        await audit.WriteAsync(request.AssociationId.HasValue ? "AssociationConfigurationChanged" : "AssociationCreated",
-            nameof(Association), result.Id.ToString(), null,
-            new { result.Name, result.NumberOfMonths, result.MonthlyContribution, request.StartAssociation },
+        await audit.WriteAsync(request.AssociationId.HasValue ? "AssociationDraftSaved" : "AssociationCreated",
+            nameof(Association), result.Id.ToString(), previousConfiguration,
+            new AssociationConfigurationAudit(result.Name, result.StartDate, result.NumberOfMonths,
+                result.MonthlyContribution, result.Memberships.Count, result.Payouts.Count, result.Status.ToString()),
             cancellationToken);
         return result;
     }
+
+    private sealed record AssociationConfigurationAudit(string Name, DateOnly StartDate, int NumberOfMonths,
+        decimal MonthlyContribution, int MemberCount, int PayoutCount, string Status);
 }
 
 public sealed record GetAssociationEditorQuery(Guid AssociationId) : IRequest<AssociationEditorDto>;

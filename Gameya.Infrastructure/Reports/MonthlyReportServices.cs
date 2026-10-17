@@ -14,7 +14,7 @@ using QuestPDF.Infrastructure;
 
 namespace Gameya.Infrastructure.Reports;
 
-public sealed class MonthlyReportGenerator(ApplicationDbContext db) : IReportGenerator
+public sealed class MonthlyReportGenerator(ApplicationDbContext db, IClock clock) : IReportGenerator
 {
     private static readonly CultureInfo ArabicCulture = CultureInfo.GetCultureInfo("ar-EG");
 
@@ -159,8 +159,8 @@ public sealed class MonthlyReportGenerator(ApplicationDbContext db) : IReportGen
         foreach (var period in periods)
         {
             var eligibleShares = memberships.Where(x => x.Kind == MembershipKind.Paying
-                    && period.PeriodDate >= DateOnly.FromDateTime(x.JoinedAtUtc.UtcDateTime)
-                    && (!x.LeftAtUtc.HasValue || period.PeriodDate <= DateOnly.FromDateTime(x.LeftAtUtc.Value.UtcDateTime)))
+                    && period.PeriodDate >= clock.EgyptDate(x.JoinedAtUtc)
+                    && (!x.LeftAtUtc.HasValue || period.PeriodDate <= clock.EgyptDate(x.LeftAtUtc.Value)))
                 .Sum(x => x.ShareCount);
             var due = eligibleShares * association.MonthlyContribution;
             var paid = paidByPeriod.GetValueOrDefault(period.Id) + creditsByPeriod.GetValueOrDefault(period.Id);
@@ -279,7 +279,7 @@ public sealed class ReportDeliveryService(IReportGenerator reports, IEmailServic
     {
         var recipient = await users.FindByIdAsync(userId) ?? throw new NotFoundException("user.not_found", "User was not found.");
         var report = await reports.GenerateMonthlyAsync(userId, includeAllOwners, year, month, cancellationToken);
-        await email.SendAsync(recipient.Email!, $"تقرير الجمعية الشهري - {month:D2}/{year:D4}",
+        await email.SendAsync(recipient.Email!, $"كشف تحصيل جمعية — {new DateTime(year, month, 1).ToString("MMMM yyyy", CultureInfo.GetCultureInfo("ar-EG"))}",
             ArabicEmailTemplate.Report(year, month),
             report.Content, report.FileName, cancellationToken);
     }

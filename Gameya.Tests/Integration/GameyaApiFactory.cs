@@ -22,7 +22,8 @@ public sealed class GameyaApiFactory : WebApplicationFactory<Program>
                 ["Testing:UseInMemoryDatabase"] = "true",
                 ["Testing:DatabaseName"] = $"GameyaTests-{Guid.NewGuid():N}",
                 ["Email:Host"] = "test",
-                ["Email:FromAddress"] = "test@gameya.local"
+                ["Email:FromAddress"] = "test@gameya.local",
+                ["ScheduledReports:Secret"] = "test-scheduler-secret-32-characters"
             }));
         builder.ConfigureServices(services =>
         {

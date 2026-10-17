@@ -17,6 +17,7 @@ public interface IClock
     DateTimeOffset UtcNow { get; }
     DateOnly Today { get; }
     DateTimeOffset EgyptStartOfDayUtc(DateOnly localDate);
+    DateOnly EgyptDate(DateTimeOffset instant);
 }
 public interface ISubscriberCodeGenerator { string Generate(); }
 
@@ -86,6 +87,12 @@ public interface IReportDeliveryService
         CancellationToken cancellationToken);
 }
 
+public interface IMonthlyFinanceService
+{
+    Task<MonthlyFinanceDto> GetAsync(string userId, bool includeAllOwners, int year, int month,
+        CancellationToken cancellationToken);
+}
+
 public interface IIdempotentReportJob
 {
     Task ExecuteAsync(string executionKey, string userId, bool includeAllOwners, int year, int month, CancellationToken cancellationToken);
@@ -93,11 +100,17 @@ public interface IIdempotentReportJob
 
 public interface IMonthlyReportCoordinator
 {
-    Task SendPreviousMonthAsync(CancellationToken cancellationToken);
+    Task SendCurrentMonthAsync(CancellationToken cancellationToken);
 }
 
 public interface IAuditService
 {
     Task WriteAsync(string action, string entityName, string entityId, object? oldValues, object? newValues,
+        CancellationToken cancellationToken);
+}
+
+public interface IUserDisplayNameService
+{
+    Task<IReadOnlyDictionary<string, string>> GetAsync(IReadOnlyCollection<string> userIds,
         CancellationToken cancellationToken);
 }

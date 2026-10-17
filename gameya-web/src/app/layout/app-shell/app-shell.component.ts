@@ -90,7 +90,7 @@ const PAYMENT_NAV: readonly NavItem[] = [
     .avatar { width: 2.35rem; height: 2.35rem; display: grid; place-items: center; border-radius: 50%; color: var(--brand-900); background: var(--brand-100); font-weight: 900; }
     .menu-button, .mobile-brand, .bottom-nav, .drawer-backdrop { display: none; }
     @media (max-width: 1023px) {
-      .sidebar { transform: translateX(105%); box-shadow: var(--shadow-lg); transition: transform .2s ease; }
+      .sidebar { width:min(var(--sidebar-width),calc(100vw - 1rem));transform: translateX(105%); box-shadow: var(--shadow-lg); transition: transform .2s ease; overscroll-behavior:contain; }
       :host-context([dir='ltr']) .sidebar { transform: translateX(-105%); }
       .shell--drawer .sidebar { transform: translateX(0); }
       .drawer-backdrop { position: fixed; z-index: 45; inset: 0; border: 0; background: rgb(7 59 58 / 48%); }
@@ -103,7 +103,7 @@ const PAYMENT_NAV: readonly NavItem[] = [
     @media (max-width: 767px) {
       .topbar { height: 4rem; }
       .topbar__name { display: none; }
-      .bottom-nav { position: fixed; z-index: 35; inset-inline: .75rem; inset-block-end: .65rem; min-height: 4.4rem; display: grid; grid-template-columns: repeat(4, 1fr); align-items: center; border: 1px solid var(--line); border-radius: 1.25rem; background: rgb(255 255 255 / 94%); box-shadow: var(--shadow-lg); backdrop-filter: blur(14px); overflow: hidden; }
+      .bottom-nav { position: fixed; z-index: 35; inset-inline: .75rem; inset-block-end: max(.65rem,env(safe-area-inset-bottom)); min-height: 4.4rem; display: grid; grid-template-columns: repeat(4, 1fr); align-items: center; border: 1px solid var(--line); border-radius: 1.25rem; background: rgb(255 255 255 / 94%); box-shadow: var(--shadow-lg); backdrop-filter: blur(14px); overflow: hidden; }
       .bottom-nav__item { min-width: 0; min-height: 4rem; border: 0; background: transparent; display: grid; place-content: center; gap: .1rem; text-align: center; color: var(--ink-500); font-size: .7rem; font-weight: 700; }
       .bottom-nav__item > span:first-child { font-size: 1rem; }
       .bottom-nav__item--active { color: var(--brand-800); background: var(--brand-50); }

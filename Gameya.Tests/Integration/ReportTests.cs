@@ -56,12 +56,12 @@ public sealed class ReportTests(GameyaApiFactory factory) : IClassFixture<Gameya
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(before + 1, factory.Email.SentCount);
         var message = factory.Email.Messages.Last(x => x.Recipient == email);
-        Assert.Contains("تقرير الجمعية الشهري", message.Subject, StringComparison.Ordinal);
+        Assert.Contains("كشف تحصيل جمعية", message.Subject, StringComparison.Ordinal);
         Assert.Contains("dir=\"rtl\"", message.HtmlBody, StringComparison.OrdinalIgnoreCase);
         Assert.NotNull(message.Attachment);
         Assert.True(message.Attachment!.Length > 1_000);
         Assert.Equal("%PDF", Encoding.ASCII.GetString(message.Attachment, 0, 4));
-        Assert.Contains("تقرير-الجمعية", message.AttachmentName, StringComparison.Ordinal);
+        Assert.Contains("كشف-التحصيل", message.AttachmentName, StringComparison.Ordinal);
 
         var associationPdf = await client.GetAsync($"/api/reports/associations/{associationId}");
         Assert.Equal(HttpStatusCode.OK, associationPdf.StatusCode);

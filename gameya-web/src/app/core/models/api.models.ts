@@ -1,4 +1,4 @@
-export type Role = 'Admin' | 'Owner' | 'PaymentUser' | 'Participant';
+﻿export type Role = 'Admin' | 'Owner' | 'PaymentUser' | 'Participant';
 export type AssociationStatus = 'Draft' | 'Active' | 'Paused' | 'Completed' | 'Cancelled';
 export type MembershipStatus = 'Active' | 'Exited' | 'Replaced';
 export type MembershipKind = 'Paying' | 'Advance';
@@ -180,12 +180,30 @@ export interface PaymentDto {
 export interface AccessibleAssociationDueDto {
   associationId: string;
   associationName: string;
+  associationStatus?: AssociationStatus;
+  shareCount?: number;
   monthlyContribution: number;
+  currentPeriodNumber?: number | null;
+  currentRequired?: number;
+  currentPaid?: number;
+  currentRemaining?: number;
+  previousArrears?: number;
   amountDueNow: number;
   totalRemaining: number;
   oldestUnpaidDueDate: string | null;
   credit: number;
-  paymentStatus: 'Paid' | 'Outstanding' | 'Upcoming';
+  paymentStatus: string;
+}
+
+export interface PaymentMonthDueDto {
+  year: number;
+  month: number;
+  monthLabel: string;
+  required: number;
+  paid: number;
+  remaining: number;
+  paymentStatus: string;
+  items: readonly PaymentDueItemDto[];
 }
 
 export interface PaymentPageDto {
@@ -194,10 +212,59 @@ export interface PaymentPageDto {
   subscriberCode: string;
   associations: readonly AccessibleAssociationDueDto[];
   dueItems: readonly PaymentDueItemDto[];
+  currentYear?: number;
+  currentMonthNumber?: number;
+  currentMonthLabel?: string;
+  arrearMonths?: readonly PaymentMonthDueDto[];
+  currentMonth?: PaymentMonthDueDto;
+  nextAdvanceMonth?: PaymentMonthDueDto | null;
   previousOverdue: number;
   currentDue: number;
   amountDueNow: number;
   totalRemaining: number;
+}
+
+export interface PaymentPreviewAllocationDto {
+  associationId: string;
+  associationName: string;
+  periodId: string;
+  periodNumber: number;
+  periodDate: string;
+  dueDate: string;
+  category: string;
+  required: number;
+  paidBefore: number;
+  allocated: number;
+  remainingAfter: number;
+  paymentStatus: string;
+}
+
+export interface PaymentPreviewCreditDto {
+  associationId: string;
+  associationName: string;
+  amount: number;
+}
+
+export interface PaymentPreviewDto {
+  personId: string;
+  amountReceived: number;
+  allocatedAmount: number;
+  creditAmount: number;
+  wasIntentReallocated: boolean;
+  allocationNotice: string | null;
+  previewToken: string;
+  allocations: readonly PaymentPreviewAllocationDto[];
+  credits: readonly PaymentPreviewCreditDto[];
+}
+
+export interface PaymentPlanningRequest {
+  personId: string;
+  amount: number;
+  advanceYear?: number | null;
+  advanceMonth?: number | null;
+  advanceAmount?: number | null;
+  associationIds?: readonly string[];
+  creditAssociationId?: string | null;
 }
 
 export interface SettlementDto {
@@ -211,13 +278,40 @@ export interface SettlementDto {
 }
 
 export interface DashboardDto {
+  year: number;
+  month: number;
+  monthLabel: string;
   totalDue: number;
   totalPaid: number;
   totalRemaining: number;
+  totalOverdue: number;
+  overduePeopleCount: number;
+  collectionProgress: number;
   activeAssociations: number;
   totalPeople: number;
   currentPayouts: number;
-  outstandingPayments: number;
+}
+
+export interface MonthlyAssociationAmountDto {
+  associationId: string; associationName: string; periodId: string; periodNumber: number; dueDate: string;
+  required: number; paid: number; remaining: number; overdue: number;
+}
+export interface MonthlyPayoutAmountDto {
+  associationId: string; associationName: string; periodId: string; periodNumber: number; amount: number;
+}
+export interface MonthlyCollectionPersonDto {
+  personId: string; personName: string; required: number; paid: number; remaining: number; overdue: number;
+  scheduledPayouts: number; netPayout: number; amountOwed: number;
+  associations: readonly MonthlyAssociationAmountDto[]; payouts: readonly MonthlyPayoutAmountDto[];
+}
+export interface MonthlyPayoutPersonDto {
+  personId: string; personName: string; scheduledPayouts: number; contributionsDue: number;
+  historicalOverdue: number; netPayout: number; amountOwed: number;
+  payouts: readonly MonthlyPayoutAmountDto[]; contributions: readonly MonthlyAssociationAmountDto[];
+}
+export interface AssociationAuditDto {
+  id: string; action: string; entityName: string; entityId: string; userId: string | null; actorName: string;
+  oldValues: string | null; newValues: string | null; timestampUtc: string;
 }
 
 export interface RegisterRequest { name: string; email: string; password: string; }
@@ -255,7 +349,13 @@ export interface RecordPaymentRequest {
   personId: string;
   amount: number;
   method: PaymentMethod;
-  idempotencyKey: string;
+  idempotencyKey?: string;
+  advanceYear?: number | null;
+  advanceMonth?: number | null;
+  advanceAmount?: number | null;
+  previewToken?: string | null;
+  associationIds?: readonly string[];
+  creditAssociationId?: string | null;
 }
 
 export interface PaymentDueItemDto {
@@ -263,8 +363,12 @@ export interface PaymentDueItemDto {
   associationName: string;
   periodId: string;
   periodNumber: number;
+  periodDate?: string;
   dueDate: string;
+  required?: number;
+  paid?: number;
   amount: number;
+  paymentStatus?: string;
 }
 export interface AdjustPaymentRequest {
   amount: number;

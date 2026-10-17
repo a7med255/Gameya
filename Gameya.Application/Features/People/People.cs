@@ -192,7 +192,7 @@ public sealed class BulkDeactivatePeopleHandler(IApplicationDbContext db, IPerso
 
 public sealed record GetPersonProfileQuery(Guid PersonId, bool ParticipantView = false) : IRequest<PersonProfileDto>;
 public sealed class GetPersonProfileHandler(IApplicationDbContext db, ICurrentUser current,
-    IAssociationAccessService access, IPersonAccessService personAccess)
+    IAssociationAccessService access, IPersonAccessService personAccess, IClock clock)
     : IRequestHandler<GetPersonProfileQuery, PersonProfileDto>
 {
     public async Task<PersonProfileDto> Handle(GetPersonProfileQuery request, CancellationToken cancellationToken)
@@ -241,8 +241,8 @@ public sealed class GetPersonProfileHandler(IApplicationDbContext db, ICurrentUs
         var requirements = new Dictionary<(Guid MembershipId, Guid PeriodId), decimal>();
         foreach (var item in memberships.Where(x => x.m.Kind == Domain.Enums.MembershipKind.Paying))
         {
-            var joined = DateOnly.FromDateTime(item.m.JoinedAtUtc.UtcDateTime);
-            var left = item.m.LeftAtUtc.HasValue ? DateOnly.FromDateTime(item.m.LeftAtUtc.Value.UtcDateTime) : (DateOnly?)null;
+            var joined = clock.EgyptDate(item.m.JoinedAtUtc);
+            var left = item.m.LeftAtUtc.HasValue ? clock.EgyptDate(item.m.LeftAtUtc.Value) : (DateOnly?)null;
             foreach (var period in periods.Where(x => x.AssociationId == item.a.Id && x.PeriodDate >= joined
                          && (!left.HasValue || x.PeriodDate <= left.Value)))
                 requirements[(item.m.Id, period.Id)] = item.a.MonthlyContribution * item.m.ShareCount;

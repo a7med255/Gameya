@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Gameya.Application.Abstractions;
 using Gameya.Application.Common;
 using Gameya.Application.DTOs;
@@ -11,7 +11,8 @@ namespace Gameya.Application.Features.Payments;
 
 public sealed record RecordPaymentCommand(Guid PersonId, decimal Amount, PaymentMethod Method,
     IReadOnlyCollection<Guid>? AssociationIds = null, Guid? CreditAssociationId = null,
-    string? IdempotencyKey = null) : IRequest<PaymentDto>;
+    int? AdvanceYear = null, int? AdvanceMonth = null, decimal? AdvanceAmount = null,
+    string? PreviewToken = null, string? IdempotencyKey = null) : IRequest<PaymentDto>;
 public sealed class RecordPaymentValidator : AbstractValidator<RecordPaymentCommand>
 {
     public RecordPaymentValidator()
@@ -20,11 +21,19 @@ public sealed class RecordPaymentValidator : AbstractValidator<RecordPaymentComm
         RuleFor(x => x.Amount).GreaterThan(0).PrecisionScale(18, 2, false).WithErrorCode("payment.invalid_amount");
         RuleFor(x => x.Method).IsInEnum().WithErrorCode("payment.invalid_method");
         RuleFor(x => x.IdempotencyKey).MaximumLength(100).WithErrorCode("payment.invalid_idempotency_key");
+        RuleFor(x => x.AdvanceMonth).InclusiveBetween(1, 12).When(x => x.AdvanceMonth.HasValue)
+            .WithErrorCode("payment.invalid_advance_month");
+        RuleFor(x => x.AdvanceAmount).GreaterThan(0).When(x => x.AdvanceAmount.HasValue)
+            .WithErrorCode("payment.invalid_advance_amount");
     }
 }
 
-public sealed class RecordPaymentHandler(IApplicationDbContext db, ICurrentUser current,
-    IAssociationAccessService access, IClock clock, IAuditService audit) : IRequestHandler<RecordPaymentCommand, PaymentDto>
+public sealed class RecordPaymentHandler(
+    IApplicationDbContext db,
+    ICurrentUser current,
+    PaymentAllocationService allocationService,
+    IClock clock,
+    IAuditService audit) : IRequestHandler<RecordPaymentCommand, PaymentDto>
 {
     public Task<PaymentDto> Handle(RecordPaymentCommand request, CancellationToken cancellationToken) =>
         db.ExecuteSerializableAsync(async innerCt =>
@@ -47,131 +56,75 @@ public sealed class RecordPaymentHandler(IApplicationDbContext db, ICurrentUser 
                             x.AllocatedAmount, x.DueDate, x.LateDays)).ToList(), existingCredits);
                 }
             }
-            var accessibleIdsQuery = access.GetAccessibleAssociationIds(current.UserId ?? throw new ForbiddenException(),
-                current.IsInRole(AppRoles.Admin), current.IsInRole(AppRoles.Owner));
-            var associationIds = await db.Memberships
-                .Where(x => x.PersonId == request.PersonId && accessibleIdsQuery.Contains(x.AssociationId))
-                .Join(db.Associations.Where(x => x.Status == AssociationStatus.Active || x.Status == AssociationStatus.Paused),
-                    membership => membership.AssociationId, association => association.Id, (_, association) => association.Id)
-                .Distinct().ToArrayAsync(innerCt);
-            if (associationIds.Length == 0) throw new NotFoundException("payment.no_accessible_associations", "No accessible associations were found for this person.");
 
-            var membershipData = await db.Memberships.AsNoTracking()
-                .Where(m => m.PersonId == request.PersonId && associationIds.Contains(m.AssociationId) && m.Kind == MembershipKind.Paying)
-                .Join(db.Associations.AsNoTracking().Where(a => a.Status == AssociationStatus.Active || a.Status == AssociationStatus.Paused),
-                    m => m.AssociationId, a => a.Id, (m, a) => new
-                {
-                    Membership = m, Association = a
-                }).ToListAsync(innerCt);
-            var validAssociationIds = membershipData.Select(x => x.Association.Id).Distinct().ToArray();
-            if (validAssociationIds.Length != associationIds.Length)
-                throw new NotFoundException("person.not_found", "Person was not found.");
-            if (!await db.People.AnyAsync(x => x.Id == request.PersonId && x.IsActive, innerCt))
-                throw new NotFoundException("person.not_found", "Person was not found.");
+            var plan = await allocationService.BuildPlanAsync(new PaymentPlanningRequest(
+                request.PersonId, request.Amount, request.AdvanceYear, request.AdvanceMonth,
+                request.AdvanceAmount, request.AssociationIds, request.CreditAssociationId), innerCt);
 
-            var allPeriods = await db.Periods.AsNoTracking()
-                .Where(x => validAssociationIds.Contains(x.AssociationId))
-                .OrderBy(x => x.DueDate).ThenBy(x => x.PeriodNumber).ToListAsync(innerCt);
-            var periods = allPeriods.Where(x => x.PeriodDate <= clock.Today).ToList();
-            var existingAllocations = await db.PaymentAllocations.AsNoTracking()
-                .Where(x => validAssociationIds.Contains(x.AssociationId))
-                .Join(db.Payments.AsNoTracking().Where(x => x.PersonId == request.PersonId),
-                    allocation => allocation.PaymentId, payment => payment.Id, (allocation, _) => allocation)
-                .GroupBy(x => new { x.AssociationId, x.PeriodId })
-                .Select(x => new { x.Key.AssociationId, x.Key.PeriodId, Amount = x.Sum(y => y.AllocatedAmount) })
-                .ToListAsync(innerCt);
-            var credits = await db.AssociationCredits.AsNoTracking()
-                .Where(x => x.PersonId == request.PersonId && validAssociationIds.Contains(x.AssociationId))
-                .GroupBy(x => x.AssociationId).Select(x => new { AssociationId = x.Key, Amount = x.Sum(c => c.Amount) })
-                .ToDictionaryAsync(x => x.AssociationId, x => x.Amount, innerCt);
-            var usedCredits = await db.AssociationCreditApplications.AsNoTracking()
-                .Where(x => x.PersonId == request.PersonId && validAssociationIds.Contains(x.AssociationId))
-                .GroupBy(x => new { x.AssociationId, x.PeriodId })
-                .Select(x => new { x.Key.AssociationId, x.Key.PeriodId, Amount = x.Sum(c => c.Amount) })
-                .ToListAsync(innerCt);
-
-            var requiredByPeriod = new Dictionary<(Guid AssociationId, Guid PeriodId), (DateOnly DueDate, decimal Amount)>();
-            foreach (var item in membershipData)
-            {
-                var joined = DateOnly.FromDateTime(item.Membership.JoinedAtUtc.UtcDateTime);
-                var left = item.Membership.LeftAtUtc.HasValue ? DateOnly.FromDateTime(item.Membership.LeftAtUtc.Value.UtcDateTime) : (DateOnly?)null;
-                foreach (var period in periods.Where(x => x.AssociationId == item.Association.Id && x.PeriodDate >= joined && (!left.HasValue || x.PeriodDate <= left.Value)))
-                {
-                    var key = (item.Association.Id, period.Id);
-                    var required = item.Association.MonthlyContribution * item.Membership.ShareCount;
-                    requiredByPeriod[key] = requiredByPeriod.TryGetValue(key, out var existing)
-                        ? (period.DueDate, existing.Amount + required)
-                        : (period.DueDate, required);
-                }
-            }
-            var obligations = requiredByPeriod.Select(item =>
-            {
-                var allocated = existingAllocations.Where(x => x.AssociationId == item.Key.AssociationId && x.PeriodId == item.Key.PeriodId).Sum(x => x.Amount)
-                    + usedCredits.Where(x => x.AssociationId == item.Key.AssociationId && x.PeriodId == item.Key.PeriodId).Sum(x => x.Amount);
-                return new Obligation(item.Key.AssociationId, item.Key.PeriodId, item.Value.DueDate,
-                    Math.Max(0, item.Value.Amount - allocated));
-            }).ToList();
-
-            // Existing association credit offsets the oldest obligation in that association without becoming global credit.
-            foreach (var associationId in validAssociationIds)
-            {
-                var availableCredit = credits.GetValueOrDefault(associationId)
-                    - usedCredits.Where(x => x.AssociationId == associationId).Sum(x => x.Amount);
-                foreach (var obligation in obligations.Where(x => x.AssociationId == associationId).OrderBy(x => x.DueDate))
-                {
-                    var used = Math.Min(obligation.Remaining, availableCredit);
-                    if (used > 0)
-                    {
-                        await db.AddEntityAsync(new AssociationCreditApplication(request.PersonId, associationId,
-                            obligation.PeriodId, used, now), innerCt);
-                        obligation.Remaining -= used; availableCredit -= used;
-                    }
-                    if (availableCredit == 0) break;
-                }
-            }
+            if (!string.IsNullOrWhiteSpace(request.PreviewToken) && plan.Preview.PreviewToken != request.PreviewToken)
+                throw new ConflictException("payment.preview_stale", "تغيرت حالة الاستحقاقات أثناء تأكيد الدفعة، يرجى مراجعة المعاينة مرة أخرى.");
 
             var payment = new Payment(request.PersonId, recorderId, request.Amount, request.Method, now, now,
                 idempotencyKey: request.IdempotencyKey);
-            var unallocated = request.Amount;
-            var orderedObligations = obligations.Where(x => x.Remaining > 0)
-                .OrderBy(x => x.DueDate).ThenBy(x => x.AssociationId).ThenBy(x => x.PeriodId);
-            foreach (var obligation in orderedObligations)
+
+            foreach (var item in plan.Allocations)
             {
-                if (unallocated == 0) break;
-                var amount = Math.Min(unallocated, obligation.Remaining);
-                payment.Allocate(obligation.AssociationId, obligation.PeriodId, amount, obligation.DueDate, clock.Today);
-                unallocated -= amount;
+                payment.Allocate(item.AssociationId, item.PeriodId, item.Amount, item.DueDate, clock.Today);
             }
+
             await db.AddEntityAsync(payment, innerCt);
-            var creditAssociationId = allPeriods
-                .Where(period => period.DueDate > clock.Today && membershipData.Any(item =>
-                    item.Association.Id == period.AssociationId
-                    && period.PeriodDate >= DateOnly.FromDateTime(item.Membership.JoinedAtUtc.UtcDateTime)
-                    && (!item.Membership.LeftAtUtc.HasValue
-                        || period.PeriodDate <= DateOnly.FromDateTime(item.Membership.LeftAtUtc.Value.UtcDateTime))))
-                .OrderBy(period => period.DueDate).ThenBy(period => period.AssociationId)
-                .Select(period => (Guid?)period.AssociationId).FirstOrDefault()
-                ?? payment.Allocations.LastOrDefault()?.AssociationId
-                ?? validAssociationIds.OrderBy(id => id).First();
-            if (unallocated > 0)
+
+            foreach (var item in plan.CreditApplications)
             {
-                await db.AddEntityAsync(new AssociationCredit(payment.Id, request.PersonId, creditAssociationId, unallocated, now), innerCt);
+                await db.AddEntityAsync(new AssociationCreditApplication(request.PersonId, item.AssociationId,
+                    item.PeriodId, item.Amount, now), innerCt);
             }
+
+            if (plan.Preview.CreditAmount > 0)
+            {
+                await db.AddEntityAsync(new AssociationCredit(payment.Id, request.PersonId, plan.CreditAssociationId,
+                    plan.Preview.CreditAmount, now), innerCt);
+            }
+
             await db.SaveChangesAsync(innerCt);
             await audit.WriteAsync("PaymentRecorded", nameof(Payment), payment.Id.ToString(), null,
-                new { request.PersonId, request.Amount, request.Method, Allocations = payment.Allocations.Count, Credit = unallocated }, innerCt);
+                new { request.PersonId, request.Amount, request.Method, Allocations = payment.Allocations.Count, Credit = plan.Preview.CreditAmount }, innerCt);
+
             return new PaymentDto(payment.Id, payment.PersonId, payment.Amount, payment.Method, payment.PaidAtUtc,
                 payment.EntryType, payment.Allocations.Select(x => new PaymentAllocationDto(x.AssociationId, x.PeriodId,
-                    x.AllocatedAmount, x.DueDate, x.LateDays)).ToList(), unallocated > 0
-                    ? [new PaymentCreditDto(creditAssociationId, unallocated)] : []);
+                    x.AllocatedAmount, x.DueDate, x.LateDays)).ToList(), plan.Preview.CreditAmount > 0
+                    ? [new PaymentCreditDto(plan.CreditAssociationId, plan.Preview.CreditAmount)] : []);
         }, cancellationToken);
+}
 
-    private sealed record Obligation(Guid AssociationId, Guid PeriodId, DateOnly DueDate, decimal InitialRemaining)
+public sealed record PreviewPaymentQuery(Guid PersonId, decimal Amount, int? AdvanceYear = null,
+    int? AdvanceMonth = null, decimal? AdvanceAmount = null,
+    IReadOnlyCollection<Guid>? AssociationIds = null, Guid? CreditAssociationId = null) : IRequest<PaymentPreviewDto>;
+
+public sealed class PreviewPaymentValidator : AbstractValidator<PreviewPaymentQuery>
+{
+    public PreviewPaymentValidator()
     {
-        public decimal Remaining { get; set; } = InitialRemaining;
+        RuleFor(x => x.PersonId).NotEmpty().WithErrorCode("person.required");
+        RuleFor(x => x.Amount).GreaterThan(0).PrecisionScale(18, 2, false).WithErrorCode("payment.invalid_amount");
+        RuleFor(x => x.AdvanceMonth).InclusiveBetween(1, 12).When(x => x.AdvanceMonth.HasValue)
+            .WithErrorCode("payment.invalid_advance_month");
+        RuleFor(x => x.AdvanceAmount).GreaterThan(0).When(x => x.AdvanceAmount.HasValue)
+            .WithErrorCode("payment.invalid_advance_amount");
     }
 }
 
+public sealed class PreviewPaymentHandler(PaymentAllocationService allocationService)
+    : IRequestHandler<PreviewPaymentQuery, PaymentPreviewDto>
+{
+    public async Task<PaymentPreviewDto> Handle(PreviewPaymentQuery request, CancellationToken cancellationToken)
+    {
+        var plan = await allocationService.BuildPlanAsync(new PaymentPlanningRequest(
+            request.PersonId, request.Amount, request.AdvanceYear, request.AdvanceMonth,
+            request.AdvanceAmount, request.AssociationIds, request.CreditAssociationId), cancellationToken);
+        return plan.Preview;
+    }
+}
 public sealed record AdjustmentAllocationInput(Guid AssociationId, Guid PeriodId, decimal Amount);
 public sealed record AdjustmentCreditInput(Guid AssociationId, decimal Amount);
 public sealed record AdjustPaymentCommand(Guid PaymentId, decimal Amount, string Reason,
@@ -379,90 +332,9 @@ public sealed class GetPaymentsHandler(IApplicationDbContext db, IAssociationAcc
 }
 
 public sealed record GetPaymentPageQuery(Guid PersonId) : IRequest<PaymentPageDto>;
-public sealed class GetPaymentPageHandler(IApplicationDbContext db, ICurrentUser current, IAssociationAccessService access, IClock clock)
+public sealed class GetPaymentPageHandler(PaymentAllocationService allocationService)
     : IRequestHandler<GetPaymentPageQuery, PaymentPageDto>
 {
-    public async Task<PaymentPageDto> Handle(GetPaymentPageQuery request, CancellationToken cancellationToken)
-    {
-        var accessible = access.GetAccessibleAssociationIds(current.UserId ?? throw new ForbiddenException(),
-            current.IsInRole(AppRoles.Admin), current.IsInRole(AppRoles.Owner));
-        var membershipData = await db.Memberships.AsNoTracking()
-            .Where(x => x.PersonId == request.PersonId && x.Kind == MembershipKind.Paying && accessible.Contains(x.AssociationId))
-            .Join(db.Associations.AsNoTracking().Where(a => a.Status == AssociationStatus.Active || a.Status == AssociationStatus.Paused),
-                m => m.AssociationId, a => a.Id, (m, a) => new { m, a }).ToListAsync(cancellationToken);
-        if (membershipData.Count == 0)
-            throw new NotFoundException("person.not_found", "Person was not found.");
-        var person = await db.People.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.PersonId && x.IsActive, cancellationToken)
-            ?? throw new NotFoundException("person.not_found", "Person was not found.");
-        var ids = membershipData.Select(x => x.a.Id).Distinct().ToArray();
-        var allocations = await db.PaymentAllocations.AsNoTracking().Where(x => ids.Contains(x.AssociationId))
-            .Join(db.Payments.AsNoTracking().Where(x => x.PersonId == person.Id),
-                allocation => allocation.PaymentId, payment => payment.Id, (allocation, _) => allocation)
-            .ToListAsync(cancellationToken);
-        var credits = await db.AssociationCredits.AsNoTracking().Where(x => x.PersonId == person.Id && ids.Contains(x.AssociationId))
-            .GroupBy(x => x.AssociationId).Select(x => new { Id = x.Key, Amount = x.Sum(c => c.Amount) }).ToDictionaryAsync(x => x.Id, x => x.Amount, cancellationToken);
-        var creditApplications = await db.AssociationCreditApplications.AsNoTracking()
-            .Where(x => x.PersonId == person.Id && ids.Contains(x.AssociationId))
-            .ToListAsync(cancellationToken);
-        var today = clock.Today;
-        var periods = await db.Periods.AsNoTracking().Where(x => ids.Contains(x.AssociationId)).ToListAsync(cancellationToken);
-        var result = new List<AccessibleAssociationDueDto>();
-        var dueItems = new List<PaymentDueItemDto>();
-        var previousOverdue = 0m;
-        var currentDue = 0m;
-        foreach (var group in membershipData.GroupBy(x => x.a.Id))
-        {
-            var association = group.First().a;
-            var requirements = new Dictionary<Guid, decimal>();
-            foreach (var item in group)
-            {
-                var joined = DateOnly.FromDateTime(item.m.JoinedAtUtc.UtcDateTime);
-                var left = item.m.LeftAtUtc.HasValue
-                    ? DateOnly.FromDateTime(item.m.LeftAtUtc.Value.UtcDateTime)
-                    : (DateOnly?)null;
-                foreach (var period in periods.Where(x => x.AssociationId == association.Id && x.PeriodDate >= joined
-                             && (!left.HasValue || x.PeriodDate <= left.Value)))
-                    requirements[period.Id] = requirements.GetValueOrDefault(period.Id)
-                        + association.MonthlyContribution * item.m.ShareCount;
-            }
-            var totalCredit = credits.GetValueOrDefault(association.Id);
-            var appliedCredit = creditApplications.Where(x => x.AssociationId == association.Id).Sum(x => x.Amount);
-            var availableCredit = totalCredit - appliedCredit;
-            var displayedCredit = availableCredit;
-            var required = requirements.Sum(x => x.Value);
-            var paid = allocations.Where(x => x.AssociationId == association.Id).Sum(x => x.AllocatedAmount);
-            var remaining = Math.Max(0, required - paid - totalCredit);
-            var dueNow = 0m;
-            DateOnly? oldest = null;
-            var currentPeriodId = periods.Where(x => x.AssociationId == association.Id && x.PeriodDate <= today)
-                .OrderBy(x => x.PeriodDate).Select(x => (Guid?)x.Id).LastOrDefault();
-            foreach (var period in periods.Where(x => x.AssociationId == association.Id).OrderBy(x => x.DueDate))
-            {
-                var periodPaid = allocations.Where(x => x.AssociationId == association.Id && x.PeriodId == period.Id)
-                    .Sum(x => x.AllocatedAmount)
-                    + creditApplications.Where(x => x.AssociationId == association.Id && x.PeriodId == period.Id)
-                        .Sum(x => x.Amount);
-                var periodRemaining = Math.Max(0, requirements.GetValueOrDefault(period.Id) - periodPaid);
-                var simulatedCredit = Math.Min(periodRemaining, availableCredit);
-                periodRemaining -= simulatedCredit;
-                availableCredit -= simulatedCredit;
-                if (periodRemaining > 0 && period.PeriodDate <= today)
-                {
-                    dueNow += periodRemaining;
-                    dueItems.Add(new PaymentDueItemDto(association.Id, association.Name, period.Id,
-                        period.PeriodNumber, period.DueDate, periodRemaining));
-                    if (period.Id == currentPeriodId) currentDue += periodRemaining;
-                    else previousOverdue += periodRemaining;
-                    oldest ??= period.DueDate;
-                }
-            }
-            result.Add(new AccessibleAssociationDueDto(association.Id, association.Name, association.MonthlyContribution,
-                dueNow, remaining, oldest, displayedCredit,
-                remaining == 0 ? "Paid" : dueNow > 0 ? "Outstanding" : "Upcoming"));
-        }
-        var orderedDueItems = dueItems.OrderBy(x => x.DueDate).ThenBy(x => x.AssociationId)
-            .ThenBy(x => x.PeriodId).ToArray();
-        return new PaymentPageDto(person.Id, person.FullName, person.SubscriberCode.Value, result, orderedDueItems,
-            previousOverdue, currentDue, result.Sum(x => x.AmountDueNow), result.Sum(x => x.TotalRemaining));
-    }
+    public Task<PaymentPageDto> Handle(GetPaymentPageQuery request, CancellationToken cancellationToken) =>
+        allocationService.GetPageAsync(request.PersonId, cancellationToken);
 }

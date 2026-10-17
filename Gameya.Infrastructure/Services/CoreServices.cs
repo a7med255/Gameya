@@ -23,6 +23,8 @@ public sealed class SystemClock : IClock
         var local = DateTime.SpecifyKind(localDate.ToDateTime(TimeOnly.MinValue), DateTimeKind.Unspecified);
         return new DateTimeOffset(local, EgyptTimeZone.GetUtcOffset(local)).ToUniversalTime();
     }
+    public DateOnly EgyptDate(DateTimeOffset instant) =>
+        DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, EgyptTimeZone).DateTime);
     private static TimeZoneInfo ResolveEgyptTimeZone()
     {
         foreach (var id in new[] { "Egypt Standard Time", "Africa/Cairo" })
@@ -140,4 +142,11 @@ public sealed class AuditService(ApplicationDbContext db, ICurrentUser current, 
             Serialize(oldValues), Serialize(newValues), clock.UtcNow, current.IpAddress), cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
     }
+}
+
+public sealed class UserDisplayNameService(ApplicationDbContext db) : IUserDisplayNameService
+{
+    public async Task<IReadOnlyDictionary<string, string>> GetAsync(IReadOnlyCollection<string> userIds,
+        CancellationToken cancellationToken) => await db.Users.AsNoTracking().Where(x => userIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.DisplayName, cancellationToken);
 }

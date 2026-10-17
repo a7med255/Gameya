@@ -47,14 +47,51 @@ public sealed record PaymentListItemDto(Guid Id, Guid PersonId, string PayerName
     Guid? AdjustsPaymentId, IReadOnlyCollection<PaymentListAllocationDto> Allocations,
     IReadOnlyCollection<PaymentCreditDto> Credits);
 public sealed record PaymentDueItemDto(Guid AssociationId, string AssociationName, Guid PeriodId,
-    int PeriodNumber, DateOnly DueDate, decimal Amount);
+    int PeriodNumber, DateOnly PeriodDate, DateOnly DueDate, decimal Required, decimal Paid,
+    decimal Amount, string PaymentStatus);
+public sealed record PaymentMonthDueDto(int Year, int Month, string MonthLabel, decimal Required,
+    decimal Paid, decimal Remaining, string PaymentStatus, IReadOnlyCollection<PaymentDueItemDto> Items);
 public sealed record PaymentPageDto(Guid PersonId, string FullName, string SubscriberCode,
     IReadOnlyCollection<AccessibleAssociationDueDto> Associations, IReadOnlyCollection<PaymentDueItemDto> DueItems,
-    decimal PreviousOverdue, decimal CurrentDue, decimal AmountDueNow, decimal TotalRemaining);
-public sealed record AccessibleAssociationDueDto(Guid AssociationId, string AssociationName, decimal MonthlyContribution,
-    decimal AmountDueNow, decimal TotalRemaining, DateOnly? OldestUnpaidDueDate, decimal Credit, string PaymentStatus);
+    int CurrentYear, int CurrentMonthNumber, string CurrentMonthLabel,
+    IReadOnlyCollection<PaymentMonthDueDto> ArrearMonths, PaymentMonthDueDto CurrentMonth,
+    PaymentMonthDueDto? NextAdvanceMonth, decimal PreviousOverdue, decimal CurrentDue,
+    decimal AmountDueNow, decimal TotalRemaining);
+public sealed record AccessibleAssociationDueDto(Guid AssociationId, string AssociationName,
+    AssociationStatus AssociationStatus, decimal ShareCount, decimal MonthlyContribution,
+    int? CurrentPeriodNumber, decimal CurrentRequired, decimal CurrentPaid, decimal CurrentRemaining,
+    decimal PreviousArrears, decimal AmountDueNow, decimal TotalRemaining, DateOnly? OldestUnpaidDueDate,
+    decimal Credit, string PaymentStatus);
+public sealed record PaymentPreviewAllocationDto(Guid AssociationId, string AssociationName, Guid PeriodId,
+    int PeriodNumber, DateOnly PeriodDate, DateOnly DueDate, string Category, decimal Required,
+    decimal PaidBefore, decimal Allocated, decimal RemainingAfter, string PaymentStatus);
+public sealed record PaymentPreviewCreditDto(Guid AssociationId, string AssociationName, decimal Amount);
+public sealed record PaymentPreviewDto(Guid PersonId, decimal AmountReceived, decimal AllocatedAmount,
+    decimal CreditAmount, bool WasIntentReallocated, string? AllocationNotice, string PreviewToken,
+    IReadOnlyCollection<PaymentPreviewAllocationDto> Allocations,
+    IReadOnlyCollection<PaymentPreviewCreditDto> Credits);
 public sealed record SettlementDto(Guid Id, Guid AssociationId, Guid MembershipId, decimal TotalRequired,
     decimal TotalPaid, decimal Balance, SettlementStatus Status);
 
-public sealed record DashboardDto(decimal TotalDue, decimal TotalPaid, decimal TotalRemaining,
-    int ActiveAssociations, int TotalPeople, int CurrentPayouts, int OutstandingPayments);
+public sealed record MonthlyAssociationAmountDto(Guid AssociationId, string AssociationName, Guid PeriodId,
+    int PeriodNumber, DateOnly DueDate, decimal Required, decimal Paid, decimal Remaining, decimal Overdue);
+public sealed record MonthlyPayoutAmountDto(Guid AssociationId, string AssociationName, Guid PeriodId,
+    int PeriodNumber, decimal Amount);
+public sealed record MonthlyCollectionPersonDto(Guid PersonId, string PersonName, decimal Required, decimal Paid,
+    decimal Remaining, decimal Overdue, decimal ScheduledPayouts, decimal NetPayout, decimal AmountOwed,
+    IReadOnlyCollection<MonthlyAssociationAmountDto> Associations,
+    IReadOnlyCollection<MonthlyPayoutAmountDto> Payouts);
+public sealed record MonthlyPayoutPersonDto(Guid PersonId, string PersonName, decimal ScheduledPayouts,
+    decimal ContributionsDue, decimal HistoricalOverdue, decimal NetPayout, decimal AmountOwed,
+    IReadOnlyCollection<MonthlyPayoutAmountDto> Payouts,
+    IReadOnlyCollection<MonthlyAssociationAmountDto> Contributions);
+public sealed record MonthlyFinanceDto(int Year, int Month, string MonthLabel, decimal TotalRequired,
+    decimal TotalPaid, decimal TotalRemaining, decimal TotalOverdue, int OverduePeopleCount,
+    decimal CollectionProgress, int ActiveAssociations, int TotalPeople, int ScheduledPayoutCount,
+    IReadOnlyCollection<MonthlyCollectionPersonDto> Collections,
+    IReadOnlyCollection<MonthlyPayoutPersonDto> PayoutRecipients);
+public sealed record DashboardDto(int Year, int Month, string MonthLabel, decimal TotalDue, decimal TotalPaid,
+    decimal TotalRemaining, decimal TotalOverdue, int OverduePeopleCount, decimal CollectionProgress,
+    int ActiveAssociations, int TotalPeople, int CurrentPayouts);
+public sealed record AssociationAuditDto(Guid Id, string Action, string EntityName, string EntityId,
+    string? UserId, string ActorName, string? OldValues, string? NewValues, DateTimeOffset TimestampUtc);

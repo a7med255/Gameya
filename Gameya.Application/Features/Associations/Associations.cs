@@ -267,7 +267,7 @@ public sealed class CompleteAssociationHandler(IApplicationDbContext db, IAssoci
                 ?? throw new NotFoundException("association.not_found", "Association was not found.");
             var now = clock.UtcNow;
             association.Complete(now);
-            await AssociationSettlementGenerator.CreateForReplacedMembersAsync(db, association, now,
+            await AssociationSettlementGenerator.CreateForReplacedMembersAsync(db, association, now, clock,
                 innerCancellationToken);
             await db.SaveChangesAsync(innerCancellationToken);
             return true;
@@ -363,7 +363,7 @@ public sealed class CompletePayoutHandler(IApplicationDbContext db, IAssociation
             association.CompletePayout(request.PayoutId, clock.Today, now);
             var completed = !wasCompleted && association.Status == AssociationStatus.Completed;
             if (completed)
-                await AssociationSettlementGenerator.CreateForReplacedMembersAsync(db, association, now,
+                await AssociationSettlementGenerator.CreateForReplacedMembersAsync(db, association, now, clock,
                     innerCancellationToken);
             await db.SaveChangesAsync(innerCancellationToken);
             return completed;
@@ -488,14 +488,14 @@ internal static class AssociationMappings
 internal static class AssociationSettlementGenerator
 {
     public static async Task CreateForReplacedMembersAsync(IApplicationDbContext db, Association association,
-        DateTimeOffset now, CancellationToken cancellationToken)
+        DateTimeOffset now, IClock clock, CancellationToken cancellationToken)
     {
         foreach (var membership in association.Memberships.Where(x => x.Status == MembershipStatus.Replaced
                      && x.Kind == MembershipKind.Paying && x.LeftAtUtc.HasValue))
         {
             if (await db.Settlements.AnyAsync(x => x.MembershipId == membership.Id, cancellationToken)) continue;
-            var joined = DateOnly.FromDateTime(membership.JoinedAtUtc.UtcDateTime);
-            var left = DateOnly.FromDateTime(membership.LeftAtUtc!.Value.UtcDateTime);
+            var joined = clock.EgyptDate(membership.JoinedAtUtc);
+            var left = clock.EgyptDate(membership.LeftAtUtc!.Value);
             var eligiblePeriodIds = association.Periods.Where(x => x.PeriodDate >= joined && x.PeriodDate <= left)
                 .Select(x => x.Id).ToArray();
             var required = eligiblePeriodIds.Length * association.MonthlyContribution * membership.ShareCount;

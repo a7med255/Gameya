@@ -110,6 +110,13 @@ public sealed class AssociationEditorApiTests(GameyaApiFactory factory) : IClass
         Assert.Equal(1, await db.MembershipsSet.CountAsync(x => x.AssociationId == associationId));
         Assert.Equal(2, await db.PeriodsSet.CountAsync(x => x.AssociationId == associationId));
         Assert.Equal(1, await db.PayoutsSet.CountAsync(x => x.AssociationId == associationId));
+
+        var audit = await client.GetFromJsonAsync<JsonElement>($"/api/associations/{associationId}/audit?pageSize=50");
+        Assert.Contains(audit.GetProperty("items").EnumerateArray(), entry =>
+            entry.GetProperty("action").GetString() == "AssociationDraftSaved"
+            && entry.GetProperty("actorName").GetString() == "Editor Owner"
+            && entry.GetProperty("oldValues").ValueKind == JsonValueKind.String
+            && entry.GetProperty("newValues").ValueKind == JsonValueKind.String);
     }
 
     [Fact]

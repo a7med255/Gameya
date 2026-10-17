@@ -1,5 +1,8 @@
 using FluentValidation;
+using Gameya.Application.Abstractions;
 using Gameya.Application.Behaviors;
+using Gameya.Application.Features.Finance;
+using Gameya.Application.Features.Payments;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -13,6 +16,8 @@ public static class DependencyInjection
         services.AddMediatR(configuration => configuration.RegisterServicesFromAssembly(assembly));
         services.AddValidatorsFromAssembly(assembly);
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
+        services.AddScoped<IMonthlyFinanceService, MonthlyFinanceService>();
+        services.AddScoped<PaymentAllocationService>();
         return services;
     }
 }
